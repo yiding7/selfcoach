@@ -186,10 +186,16 @@ def build(kind: str, start: dt.date, end: dt.date) -> dict:
     unknown = sorted({ms.name for s in period for ms in s.movements
                       if ms.group == "未分类"})
 
+    # 同步覆盖率只对用训记的人有意义。纯手记用户没有「未同步的日期」这回事，
+    # 对他们显示「只同步了 0/7 天」既不准确也让人困惑。
+    uses_xunji = fetched_days > 0 or any(s.source == "xunji" for s in stats_all)
+
     quality = {
         "days_in_period": span,
+        "sync_applicable": uses_xunji,
         "days_synced": fetched_days,
-        "coverage_pct": round(fetched_days / span * 100, 1) if span else 0,
+        "coverage_pct": (round(fetched_days / span * 100, 1)
+                         if (span and uses_xunji) else None),
         "rpe_coverage": round(rpe_sets / total_sets, 3) if total_sets else 0,
         "unclassified_movements": unknown,
         "volume_incomplete": any(s.volume_incomplete for s in period),

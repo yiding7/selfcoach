@@ -315,8 +315,8 @@ def _section_prescriptions(model: dict) -> str:
 def _section_quality(model: dict) -> str:
     q = model["data_quality"]
     items = []
-    cov = q["coverage_pct"]
-    if cov < 100:
+    cov = q.get("coverage_pct")
+    if q.get("sync_applicable") and cov is not None and cov < 100:
         items.append(f'本期 {q["days_in_period"]} 天里，已同步 {q["days_synced"]} 天'
                      f'（{cov:.0f}%）。未同步的日期不会出现在统计里 —— '
                      f'跑 <code>hc sync</code> 补齐。')
@@ -351,7 +351,8 @@ def render(model: dict) -> str:
         _kpi("训练次数", str(k["sessions"]), ses_sub),
         _kpi("总容量", f'{fmt_num(k["volume_kg"])} kg', vol_sub, vol_tone),
         _kpi("有效组数", str(k["sets"]), set_sub, set_tone),
-        _kpi("训练时长", f'{fmt_num(k["duration_min"])} 分钟'),
+        _kpi("训练时长", f'{fmt_num(k["duration_min"])} 分钟'
+                     if k.get("duration_min") else "未记录"),
     ] + ([_kpi("消耗", f'{fmt_num(k["kcal"])} kcal')] if k.get("kcal") else []))
 
     has_narrative = bool(model.get("narrative"))

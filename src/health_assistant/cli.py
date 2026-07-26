@@ -302,6 +302,102 @@ def cmd_next(args) -> int:
     return 0
 
 
+def cmd_log(args) -> int:
+    """手记训练。解析 → 展示摘要 → 确认 → 落库。"""
+    import pathlib
+
+    from . import manual
+
+    if args.file == "-":
+        if sys.stdin.isatty():
+            print("从标准输入读速记文本，Ctrl-D 结束：\n")
+        text = sys.stdin.read()
+    else:
+        text = pathlib.Path(args.file).read_text(encoding="utf-8")
+
+    date = dt.date.fromisoformat(args.date) if args.date else None
+    result = manual.parse(text, default_date=date)
+
+    for issue in result.issues:
+        print(f"  {issue}")
+
+    if result.session is None:
+        print("\n没能解析出训练内容。速记格式示例：")
+        print("  # 2026-07-26 推日\n  杠铃卧推 60x10 60x8 62.5x8@8\n  绳索夹胸 15x15x3")
+        return 1
+
+    print("\n" + "─" * 56)
+    print(manual.summarize(result.session))
+    print("─" * 56)
+
+    existing = store.load_sessions(start=result.session["date"],
+                                   end=result.session["date"])
+    dup = manual.dedupe_against(result.session, existing)
+    if dup:
+        print(f"\n⚠️  这一天已经有训记同步来的记录（{dup['id']}），动作高度重合。")
+        print("    训记的记录优先，这条手记会被标记为已被取代（不会删除）。")
+        result.session["superseded_by"] = dup["id"]
+
+    if args.dry_run:
+        print("\n（dry-run，没有写入）")
+        return 0
+    if not args.yes:
+        try:
+            if input("\n确认写入？[y/N] ").strip().lower() not in ("y", "yes"):
+                print("已取消。")
+                return 0
+        except EOFError:
+            print("\n非交互环境，请加 --yes 确认写入。")
+            return 1
+
+    store.init()
+    store.upsert_sessions([result.session])
+    print(f"\n已写入 {result.session['id']}")
+    print("接着可以跑：hc compare　或　hc report weekly")
+    return 0
+
+
+def cmd_classify(args) -> int:
+    """查看/教会动作的肌群归属。"""
+    from . import taxonomy
+
+    if args.learn:
+        name, _, group = args.learn.partition("=")
+        if not group:
+            print("用法：hc classify --learn '动作名=部位'")
+            return 1
+        taxonomy.learn(name.strip(), group.strip())
+        print(f"记住了：{name.strip()} → {group.strip()}")
+        return 0
+
+    sessions = store.load_sessions()
+    seen: dict[str, tuple[str, str]] = {}
+    for s in sessions:
+        for m in s.get("movements") or []:
+            c = taxonomy.classify_movement(m)
+            seen[m["name"]] = (c.group, c.source)
+
+    unknown = {n: v for n, v in seen.items() if v[0] == taxonomy.UNKNOWN}
+    if args.unknown_only:
+        seen = unknown
+
+    if not seen:
+        print("本地还没有训练记录。")
+        return 0
+
+    src_label = {"override": "你教的", "xunji_type": "训记返回",
+                 "taxonomy": "动作表", "rule": "关键词推断", "unknown": "未分类"}
+    for name, (group, source) in sorted(seen.items(), key=lambda kv: kv[1][0]):
+        print(f"  {group:<5} {name:<24} [{src_label.get(source, source)}]")
+
+    print(f"\n共 {len(seen)} 个动作")
+    if unknown and not args.unknown_only:
+        print(f"其中 {len(unknown)} 个未分类。教给我：")
+        for n in list(unknown)[:5]:
+            print(f"  hc classify --learn '{n}=胸'")
+    return 0
+
+
 def cmd_report(args) -> int:
     import json
 
@@ -326,12 +422,15 @@ def cmd_report(args) -> int:
 
     print(f"\n{model['period']['label']}（{start} ~ {end}）")
     k = model["kpis"]
+    dur = f"{k['duration_min']:.0f} 分钟" if k.get("duration_min") else "时长未记录"
     print(f"  训练 {k['sessions']} 次 · {k['sets']} 组 · "
-          f"{k['volume_kg']:,.0f} kg · {k['duration_min']:.0f} 分钟")
+          f"{k['volume_kg']:,.0f} kg · {dur}")
     q = model["data_quality"]
-    if q["coverage_pct"] < 100:
+    cov = q.get("coverage_pct")
+    # 显式判 None —— 0.0 是 falsy，用 `or` 兜底会让「一天都没同步」变成「全同步了」
+    if q.get("sync_applicable") and cov is not None and cov < 100:
         print(f"  ⚠ 本期只同步了 {q['days_synced']}/{q['days_in_period']} 天"
-              f"（{q['coverage_pct']:.0f}%），跑 `hc sync` 补齐")
+              f"（{cov:.0f}%），跑 `hc sync` 补齐")
     print(f"\n  报告  {html_path}")
     print(f"  事实  {facts_path}")
     print("\n  没有接模型时报告也是完整的。想要教练的文字讲解，"
@@ -420,6 +519,18 @@ def build_parser() -> argparse.ArgumentParser:
     nx = sub.add_parser("next", help="下次同部位训练的具体建议")
     nx.add_argument("group", help="部位，比如 胸 / 背 / 腿")
     nx.set_defaults(func=cmd_next)
+
+    lg = sub.add_parser("log", help="手记一次训练（没有训记也能用）")
+    lg.add_argument("--file", default="-", help="速记文本文件，- 表示从 stdin 读")
+    lg.add_argument("--date", help="日期，默认取文本里的或今天")
+    lg.add_argument("--dry-run", action="store_true", help="只解析并展示，不写入")
+    lg.add_argument("--yes", action="store_true", help="跳过确认直接写入")
+    lg.set_defaults(func=cmd_log)
+
+    cf = sub.add_parser("classify", help="查看或教会动作的肌群归属")
+    cf.add_argument("--learn", metavar="'动作名=部位'", help="教一个动作属于哪个部位")
+    cf.add_argument("--unknown-only", action="store_true", help="只看未分类的")
+    cf.set_defaults(func=cmd_classify)
 
     rp = sub.add_parser("report", help="生成自包含 HTML 报告（周/月/年）")
     rp.add_argument("kind", choices=["weekly", "monthly", "yearly"])
