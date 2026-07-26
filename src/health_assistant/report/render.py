@@ -72,6 +72,32 @@ def _narrative(model: dict, slot: str) -> str:
     return f'<div class="narrative">{paras}</div>'
 
 
+def _aggregate_by_month(sessions: list[dict]) -> tuple[list[str], list[dict], list[dict]]:
+    """年报按月汇总。
+
+    一年可能有 150+ 次训练，逐次画柱子会挤成一团、表格也长得没法看。
+    按月聚合才是年报该有的粒度。
+    """
+    buckets: dict[str, dict] = {}
+    for s in sessions:
+        ym = s["date"][:7]
+        b = buckets.setdefault(ym, {"groups": {}, "sessions": 0, "sets": 0,
+                                    "volume": 0.0, "minutes": 0.0, "days": set()})
+        b["sessions"] += 1
+        b["sets"] += s["sets_done"]
+        b["volume"] += s["volume_kg"] or 0
+        b["minutes"] += s["duration_min"] or 0
+        b["days"].add(s["date"])
+        for g, n in s["groups"].items():
+            b["groups"][g] = b["groups"].get(g, 0) + n
+
+    months = sorted(buckets)
+    labels = [f"{int(m[5:7])}月" for m in months]
+    stacks = [buckets[m]["groups"] for m in months]
+    rows = [{"label": labels[i], **buckets[months[i]]} for i in range(len(months))]
+    return labels, stacks, rows
+
+
 def _section_sessions(model: dict) -> str:
     sessions = model["sessions"]
     if not sessions:
@@ -80,21 +106,42 @@ def _section_sessions(model: dict) -> str:
                 '如果练了但没同步，跑 <code>hc sync</code>；'
                 '想手动补记，直接告诉助手就行。</p></section>')
 
-    labels = [s["date"][5:] for s in sessions]
-    keys, stacks = [], []
-    for s in sessions:
-        stacks.append(dict(s["groups"]))
-        for g in s["groups"]:
+    yearly = model["kind"] == "yearly"
+
+    if yearly:
+        labels, stacks, agg = _aggregate_by_month(sessions)
+        rows = "".join(
+            f'<tr><td>{esc(r["label"])}</td>'
+            f'<td class="num">{r["sessions"]}</td>'
+            f'<td class="num">{len(r["days"])}</td>'
+            f'<td class="num">{r["sets"]}</td>'
+            f'<td class="num">{fmt_num(r["volume"]) if r["volume"] else "—"}</td>'
+            f'<td class="num">{fmt_num(r["minutes"]) if r["minutes"] else "—"}</td></tr>'
+            for r in agg)
+        head = ('<thead><tr><th>月份</th><th class="num">训练次数</th>'
+                '<th class="num">训练天数</th><th class="num">组数</th>'
+                '<th class="num">容量 kg</th><th class="num">分钟</th></tr></thead>')
+        chart_title = "每月的部位组数分布"
+    else:
+        labels = [s["date"][5:] for s in sessions]
+        stacks = [dict(s["groups"]) for s in sessions]
+        rows = "".join(
+            f'<tr><td>{esc(s["date"][5:])}</td><td>{esc(s["label"])}</td>'
+            f'<td class="num">{s["sets_done"]}/{s["sets_planned"]}</td>'
+            f'<td class="num">{fmt_num(s["volume_kg"]) if s["volume_kg"] else "—"}</td>'
+            f'<td class="num">{fmt_num(s["duration_min"]) if s["duration_min"] else "—"}</td>'
+            f'<td class="num">{fmt_num(s["kcal"]) if s.get("kcal") else "—"}</td></tr>'
+            for s in sessions)
+        head = ('<thead><tr><th>日期</th><th>部位</th><th class="num">组数</th>'
+                '<th class="num">容量 kg</th><th class="num">分钟</th>'
+                '<th class="num">kcal</th></tr></thead>')
+        chart_title = "每次训练的部位组数分布"
+
+    keys: list[str] = []
+    for st in stacks:
+        for g in st:
             if g not in keys:
                 keys.append(g)
-
-    rows = "".join(
-        f'<tr><td>{esc(s["date"][5:])}</td><td>{esc(s["label"])}</td>'
-        f'<td class="num">{s["sets_done"]}/{s["sets_planned"]}</td>'
-        f'<td class="num">{fmt_num(s["volume_kg"]) if s["volume_kg"] else "—"}</td>'
-        f'<td class="num">{fmt_num(s["duration_min"]) if s["duration_min"] else "—"}</td>'
-        f'<td class="num">{fmt_num(s["kcal"]) if s.get("kcal") else "—"}</td></tr>'
-        for s in sessions)
 
     legend = "".join(
         f'<span><i style="background:var(--{group_css(k)})"></i>{esc(k)}</span>'
@@ -103,12 +150,9 @@ def _section_sessions(model: dict) -> str:
     return f"""<section class="card">
 <h2>训练分布</h2>
 {stacked_bar(labels, stacks, keys, group_css, height=230, y_unit=" 组",
-             title="每次训练的部位组数分布")}
+             title=chart_title)}
 <div class="legend">{legend}</div>
-<div class="scroll-x"><table>
-<thead><tr><th>日期</th><th>部位</th><th class="num">组数</th>
-<th class="num">容量 kg</th><th class="num">分钟</th><th class="num">kcal</th></tr></thead>
-<tbody>{rows}</tbody></table></div>
+<div class="scroll-x"><table>{head}<tbody>{rows}</tbody></table></div>
 </section>"""
 
 
@@ -158,6 +202,30 @@ def _section_groups(model: dict) -> str:
 <p class="muted small">参考区间是人群统计值，不是处方。个体差异很大，
 减脂期的可恢复上限还会更低。这里只用来提示「可能偏少 / 偏多」，
 你自己的感受永远优先。</p>
+</section>"""
+
+
+def _section_calendar(model: dict) -> str:
+    """月报/年报的训练日历。周报时间跨度太短，画日历没意义。"""
+    if model["kind"] == "weekly":
+        return ""
+    sessions = model["sessions"]
+    if not sessions:
+        return ""
+    p = model["period"]
+    day_values: dict[str, float] = {}
+    for s in sessions:
+        # 有容量用容量，自重训练没容量就用组数兜底，免得整天显示成没练
+        v = s["volume_kg"] or (s["sets_done"] * 100)
+        day_values[s["date"]] = day_values.get(s["date"], 0) + v
+
+    trained = len(day_values)
+    days = p["days"]
+    return f"""<section class="card">
+<h2>训练日历</h2>
+<div class="scroll-x">{calendar_heatmap(day_values, p["start"], p["end"])}</div>
+<p class="muted small">颜色深浅表示当天的训练容量。
+{p["days"]} 天里有 {trained} 天训练，约每周 {trained / max(days / 7, 1):.1f} 次。</p>
 </section>"""
 
 
@@ -374,6 +442,7 @@ def render(model: dict) -> str:
         f'<div class="kpis">{kpis}</div>',
         _narrative(model, "training"),
         _section_sessions(model),
+        _section_calendar(model),
         _section_groups(model),
         _section_bodymap(model),
         _section_comparison(model),

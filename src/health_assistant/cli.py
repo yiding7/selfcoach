@@ -378,11 +378,16 @@ def cmd_classify(args) -> int:
             seen[m["name"]] = (c.group, c.source)
 
     unknown = {n: v for n, v in seen.items() if v[0] == taxonomy.UNKNOWN}
+    total_seen = len(seen)
     if args.unknown_only:
         seen = unknown
 
     if not seen:
-        print("本地还没有训练记录。")
+        # 「没有未分类动作」和「本地没有记录」是两回事，别混为一谈
+        if total_seen:
+            print(f"全部 {total_seen} 个动作都已归类，没有需要处理的。")
+        else:
+            print("本地还没有训练记录。跑 `hc sync` 或 `hc log`。")
         return 0
 
     src_label = {"override": "你教的", "xunji_type": "训记返回",
@@ -416,6 +421,21 @@ def cmd_report(args) -> int:
     facts_path = REPORTS_DIR / f"{name}.facts.json"
     facts_path.write_text(
         json.dumps(model, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    if args.auto:
+        from .llm import LLMNotConfigured, narrate
+        try:
+            narrative = narrate(model)
+            if narrative:
+                model["narrative"] = narrative
+                facts_path.write_text(
+                    json.dumps(model, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8")
+                print(f"  已生成叙述：{'、'.join(narrative)}")
+            else:
+                print("  模型没有返回可用叙述（或数字校验未通过），保持纯数据模式")
+        except LLMNotConfigured as e:
+            print(f"\n{e}")
 
     html_path = REPORTS_DIR / f"{name}.html"
     html_path.write_text(render(model), encoding="utf-8")
@@ -536,6 +556,9 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("kind", choices=["weekly", "monthly", "yearly"])
     rp.add_argument("--date", help="期间内的任意一天，默认今天")
     rp.add_argument("--open", action="store_true", help="生成后用浏览器打开")
+    rp.add_argument("--auto", action="store_true",
+                    help="用 .env 里配的 LLM 适配器自动写叙述（cron 无人值守用；"
+                         "在 agent 宿主里不需要）")
     rp.set_defaults(func=cmd_report)
 
     ij = sub.add_parser("inject", help="把模型写的叙述注入报告")
