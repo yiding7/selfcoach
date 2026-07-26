@@ -302,6 +302,71 @@ def cmd_next(args) -> int:
     return 0
 
 
+def cmd_report(args) -> int:
+    import json
+
+    from .config import REPORTS_DIR
+    from .report import build, month_bounds, render, slug, week_bounds, year_bounds
+
+    today = dt.date.today()
+    anchor = dt.date.fromisoformat(args.date) if args.date else today
+    bounds = {"weekly": week_bounds, "monthly": month_bounds, "yearly": year_bounds}
+    start, end = bounds[args.kind](anchor)
+
+    model = build(args.kind, start, end)
+    name = slug(args.kind, start)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    facts_path = REPORTS_DIR / f"{name}.facts.json"
+    facts_path.write_text(
+        json.dumps(model, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    html_path = REPORTS_DIR / f"{name}.html"
+    html_path.write_text(render(model), encoding="utf-8")
+
+    print(f"\n{model['period']['label']}（{start} ~ {end}）")
+    k = model["kpis"]
+    print(f"  训练 {k['sessions']} 次 · {k['sets']} 组 · "
+          f"{k['volume_kg']:,.0f} kg · {k['duration_min']:.0f} 分钟")
+    q = model["data_quality"]
+    if q["coverage_pct"] < 100:
+        print(f"  ⚠ 本期只同步了 {q['days_synced']}/{q['days_in_period']} 天"
+              f"（{q['coverage_pct']:.0f}%），跑 `hc sync` 补齐")
+    print(f"\n  报告  {html_path}")
+    print(f"  事实  {facts_path}")
+    print("\n  没有接模型时报告也是完整的。想要教练的文字讲解，"
+          "让助手读 facts.json 后用 `hc report inject` 注入。")
+    if args.open:
+        import subprocess
+        subprocess.run(["open", str(html_path)], check=False)
+    return 0
+
+
+def cmd_inject(args) -> int:
+    """把模型写好的叙述注入报告。"""
+    import json
+
+    from .config import REPORTS_DIR
+    from .report import render
+
+    facts_path = REPORTS_DIR / f"{args.name}.facts.json"
+    if not facts_path.exists():
+        print(f"找不到 {facts_path}。先跑 `hc report weekly`。")
+        return 1
+    model = json.loads(facts_path.read_text(encoding="utf-8"))
+
+    text = (sys.stdin.read() if args.file == "-"
+            else __import__("pathlib").Path(args.file).read_text(encoding="utf-8"))
+    model.setdefault("narrative", {})[args.slot] = text.strip()
+
+    facts_path.write_text(json.dumps(model, ensure_ascii=False, indent=2) + "\n",
+                          encoding="utf-8")
+    html_path = REPORTS_DIR / f"{args.name}.html"
+    html_path.write_text(render(model), encoding="utf-8")
+    print(f"已注入 {args.slot} → {html_path}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="hc",
@@ -355,6 +420,19 @@ def build_parser() -> argparse.ArgumentParser:
     nx = sub.add_parser("next", help="下次同部位训练的具体建议")
     nx.add_argument("group", help="部位，比如 胸 / 背 / 腿")
     nx.set_defaults(func=cmd_next)
+
+    rp = sub.add_parser("report", help="生成自包含 HTML 报告（周/月/年）")
+    rp.add_argument("kind", choices=["weekly", "monthly", "yearly"])
+    rp.add_argument("--date", help="期间内的任意一天，默认今天")
+    rp.add_argument("--open", action="store_true", help="生成后用浏览器打开")
+    rp.set_defaults(func=cmd_report)
+
+    ij = sub.add_parser("inject", help="把模型写的叙述注入报告")
+    ij.add_argument("name", help="报告名，比如 2026-W30")
+    ij.add_argument("--slot", required=True,
+                    choices=["opening", "training", "body", "nutrition", "closing"])
+    ij.add_argument("--file", default="-", help="叙述文件路径，- 表示从 stdin 读")
+    ij.set_defaults(func=cmd_inject)
 
     return p
 
