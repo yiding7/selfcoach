@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# 免安装入口：直接从 clone 出来的目录运行，不需要 pip install。
+# 这就是 README 里说的「即启即用」的字面意思。
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec "${PYTHON:-python3}" -c "import sys; sys.path.insert(0,'${HERE}/src'); from health_assistant.cli import main; sys.exit(main())" "$@"
