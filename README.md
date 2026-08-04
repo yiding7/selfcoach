@@ -63,7 +63,16 @@ cp profile/personal-context.example.md profile/personal-context.md
 # 用编辑器填写：病史、用药、伤病、器材、忌口、作息、沟通偏好
 ```
 
+体检报告直接丢进 `profile/medical/`，文件名带上日期（比如 `2026-04-体检.pdf`），
+助手会读取并和历史报告逐项对比。
+
 `profile/` 整个目录不进版本库，放心写。
+
+装上后台自动同步，之后数据自己保持新鲜、对话时不用等：
+
+```bash
+hc autosync install
+```
 
 ---
 
@@ -369,6 +378,8 @@ hc import-health <导出.zip>     # 导入苹果健康
 ## 目录结构与隐私
 
 ```
+profile/medical/ 体检报告原件（PDF / 图片），**不进版本库**
+                 文件名带日期，比如 2026-04-体检.pdf；助手会读取并跨次对比
 knowledge/       通用知识，**提交进版本库、可分享**
                  人格、安全边界、动作肌群表、动作模式表、结构平衡规则、训练量参考
 profile/         个人隐私，**不进版本库**
