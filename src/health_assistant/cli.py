@@ -98,6 +98,121 @@ def cmd_sync(args) -> int:
     return rc
 
 
+def cmd_import_health(args) -> int:
+    """导入苹果健康导出文件。"""
+    import pathlib as _p
+
+    from . import apple_health as AH
+
+    path = _p.Path(args.path).expanduser()
+    if not path.exists():
+        print(f"找不到 {path}")
+        print()
+        print("怎么拿到这个文件：")
+        print("  iPhone 健康 App → 右上角头像 → 拉到最下面「导出所有健康数据」")
+        print("  → 生成「导出.zip」→ 传到电脑上，把路径给我")
+        print()
+        print("  hc import-health ~/Downloads/导出.zip")
+        return 1
+
+    print(f"导入 {path}")
+    try:
+        data = AH.parse(path, since=args.since)
+    except (FileNotFoundError, OSError) as e:
+        print(f"  读取失败：{e}")
+        return 1
+
+    if not data:
+        print("  没有解析出可用数据。")
+        return 0
+
+    print()
+    print("  解析结果：")
+    for key, daily in sorted(data.items()):
+        days = sorted(daily)
+        print(f"    {key:<14} {len(daily):>5} 天  {days[0]} ~ {days[-1]}")
+
+    if args.dry_run:
+        print("\n（dry-run，未写入）")
+        return 0
+
+    counts = AH.persist(data)
+    print()
+    for k, n in counts.items():
+        print(f"  已写入 {k}: {n} 条")
+    print("\n体重/体脂/腰围已合并进身体数据，`hc status` 和报告会自动用上。")
+    return 0
+
+
+def cmd_cardio(args) -> int:
+    from .analytics import cardio as C
+
+    hm, src = C.hr_max()
+    if not hm:
+        print("缺少出生年份，无法估算心率区间。填一下 data/profile.json 的 birth_year。")
+        return 1
+
+    print(f"\n最大心率 {hm:.0f} bpm（{src}）")
+    print("─" * 58)
+    for name, lo, hi, use in C.zone_table():
+        print(f"  {name:<10} {lo:>3}–{hi:>3} bpm   {use}")
+
+    raw = store.load_sessions(start=args.since)
+    bouts = C.extract_bouts([], raw, start=args.since)
+    if not bouts:
+        print("\n本地没有有氧记录。")
+        print("训记会把苹果健康的运动同步过来（骑行、跑步、爬楼梯等），"
+              "跑 `hc sync train` 之后就能看到。")
+        return 0
+
+    print(f"\n{'实际记录':─<54}")
+    for b in bouts:
+        line = f"  {b.date}  {b.name:<12}"
+        if b.minutes:  line += f"{b.minutes:>5.1f} 分钟"
+        if b.avg_hr:   line += f"  平均 {b.avg_hr:>3.0f} bpm（{b.pct_hrmax*100:.0f}% → {b.zone}）"
+        if b.max_hr:   line += f"  峰值 {b.max_hr:.0f}"
+        if b.kcal:     line += f"  {b.kcal:.0f} kcal"
+        print(line)
+
+    import datetime as _dt
+    week = C.summarize(bouts, _dt.date.today().isoformat(), window_days=args.window)
+    print(f"\n{'过去 ' + str(args.window) + ' 天汇总':─<54}")
+    print(f"  {week.bouts} 次，共 {week.total_minutes:.0f} 分钟"
+          + (f"，{week.total_kcal:.0f} kcal" if week.total_kcal else ""))
+    for z, mins in sorted(week.by_zone.items()):
+        print(f"    {z:<10} {mins:>5.0f} 分钟")
+
+    findings = C.evaluate(week, bouts)
+    if findings:
+        print(f"\n{'建议':─<54}")
+        icon = {"warn": "△", "action": "→", "info": "·"}
+        for f in findings:
+            print(f"  {icon.get(f['kind'], '·')} {f['text']}")
+            if f["fix"]:
+                print(f"      {f['fix']}")
+    return 0
+
+
+def cmd_status(args) -> int:
+    """数据新鲜度。**不联网**，助手每次对话开头跑这个。"""
+    from .autosync import status_report
+    print(status_report(verbose=args.verbose))
+    return 0
+
+
+def cmd_autosync(args) -> int:
+    from . import autosync
+    if args.action == "install":
+        return autosync.install(interval_hours=args.interval,
+                                backfill_minutes=args.backfill_minutes)
+    if args.action == "uninstall":
+        return autosync.uninstall()
+    if args.action == "log":
+        return autosync.tail_log()
+    print(autosync.status_report())
+    return 0
+
+
 def cmd_rebuild(args) -> int:
     from .xunji.sync import rebuild
     rebuild()
@@ -563,6 +678,29 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--stop-after-empty-streak", type=int, default=None,
                    help="连续 N 天无记录就停止，用于探到历史起点")
     s.set_defaults(func=cmd_sync)
+
+    ih = sub.add_parser("import-health", help="导入苹果健康导出文件（导出.zip）")
+    ih.add_argument("path", help="导出.zip 或解压后的 导出.xml / 目录")
+    ih.add_argument("--since", help="只导入这个日期之后的，比如 2026-01-01")
+    ih.add_argument("--dry-run", action="store_true", help="只解析看结果，不写入")
+    ih.set_defaults(func=cmd_import_health)
+
+    cd = sub.add_parser("cardio", help="有氧与心率区间分析")
+    cd.add_argument("--since", default="2026-06-01", help="起始日期")
+    cd.add_argument("--window", type=int, default=7, help="汇总窗口天数，默认 7")
+    cd.set_defaults(func=cmd_cardio)
+
+    stt = sub.add_parser("status", help="数据新鲜度（不联网，秒回）")
+    stt.add_argument("-v", "--verbose", action="store_true")
+    stt.set_defaults(func=cmd_status)
+
+    aus = sub.add_parser("autosync", help="后台自动同步（装上就不用现场等）")
+    aus.add_argument("action", nargs="?", default="status",
+                     choices=["install", "uninstall", "status", "log"])
+    aus.add_argument("--interval", type=int, default=3, help="每几小时跑一次，默认 3")
+    aus.add_argument("--backfill-minutes", type=int, default=10,
+                     help="每次顺带回填多少分钟历史，默认 10")
+    aus.set_defaults(func=cmd_autosync)
 
     r = sub.add_parser("rebuild", help="用本地原始缓存离线重算（零网络请求）")
     r.set_defaults(func=cmd_rebuild)

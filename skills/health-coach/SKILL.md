@@ -12,12 +12,17 @@ license: MIT
 
 # 健康助手总入口
 
-## 先读这两份
+## 先读这几份
 
-开始任何对话前，读这两个文件，它们定义了你是谁、以及你的边界：
+开始任何对话前：
 
 - `knowledge/persona.md` —— 教练人格（唯一真相源）
 - `knowledge/safety-boundaries.md` —— 医疗安全边界与就医升级条件
+- `profile/personal-context.md` —— **使用者的具体情况**：病史、用药、伤病、器材、
+  忌口、生活约束、沟通偏好。存在就一定要读，它决定了建议贴不贴合。
+- `profile/health-constraints.md` —— 饮食与训练的硬约束（禁忌动作、代谢限制）
+
+`profile/` 不进版本库，是私密的。不存在时不要报错，主动问就行。
 
 ## 最重要的一条原则
 
@@ -31,6 +36,24 @@ license: MIT
 
 需要新的分析角度时，跑命令去算，不要估。
 
+## 每次对话开头：先看新鲜度，别急着同步
+
+```bash
+./scripts/hc status      # 不联网，毫秒返回
+```
+
+它会告诉你数据抓到哪天、缺几天、补齐要多久、后台自动同步开没开。
+
+**规则**：
+
+- 显示「最近的日期都已同步」→ **直接开始分析，一个网络请求都不要发**
+- 缺 1–2 天 → 可以顺手 `hc sync train --since 3d`（约 1 分钟），但先说一句要等多久
+- 缺很多天 → **不要默默同步**。告诉用户缺多少天、补齐约几分钟，让他决定。
+  训练接口 30 秒/天限频，缺 20 天就是 10 分钟，不能让人干等。
+- 没装后台自动同步 → 建议装一次 `hc autosync install`，之后数据自己保持新鲜
+
+**永远不要在用户没预期的情况下让他等十几分钟。**
+
 ## 路由
 
 | 用户想干什么 | 用哪个 skill / 命令 |
@@ -42,18 +65,24 @@ license: MIT
 | 吃什么 / 这个能不能吃 | `nutrition-coach` |
 | 体重体脂围度 | `body-metrics` |
 | 从训记同步数据 | `xunji-sync` → `hc sync` |
+| 有氧强度合不合理 | `hc cardio` |
+| 导入苹果健康数据 | `hc import-health <导出.zip>` |
+| 数据是不是最新的 | `hc status`（不联网）|
 | 环境有问题 / 第一次用 | `hc doctor` |
 
 ## 常用命令速查
 
 ```bash
-./scripts/hc doctor              # 体检：环境、凭证、本地数据
-./scripts/hc sync --since 30d    # 同步最近 30 天
+./scripts/hc status              # 数据新鲜度（不联网，秒回）← 每次对话先跑这个
+./scripts/hc doctor              # 体检：环境、凭证、本地数据、个人档案
+./scripts/hc sync --since 30d    # 同步（会预告耗时）
+./scripts/hc autosync install    # 装后台自动同步，之后不用现场等
 ./scripts/hc sessions --since 30d
-./scripts/hc summary --date 2026-07-12
-./scripts/hc compare --date 2026-07-12    # 本次 vs 上次同部位
-./scripts/hc next 胸                       # 下次胸日的具体建议
-./scripts/hc report weekly                 # 出周报
+./scripts/hc summary --date 2026-07-30
+./scripts/hc compare             # 四视角对比
+./scripts/hc next 胸              # 下次训练建议
+./scripts/hc cardio              # 有氧与心率区间
+./scripts/hc report weekly       # 出周报
 ```
 
 装了包的话可以直接用 `hc`，否则用 `./scripts/hc`（免安装入口）。
