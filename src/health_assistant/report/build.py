@@ -192,11 +192,14 @@ def build(kind: str, start: dt.date, end: dt.date) -> dict:
     raw_w = [(r["date"], r["value"]) for r in body
              if r["type"] == "weight" and start.isoformat() <= r["date"] <= end.isoformat()]
     trend_in = [(d, v) for d, v in trend if start.isoformat() <= d <= end.isoformat()]
-    rate = weight_trend_pct_per_week(trend, days=max(span, 14))
+    # 速率和「期末体重」都必须只看本期的均线切片。
+    # 传全量 trend 会让任何历史周期的报告都显示「今天」的体重和速率 ——
+    # 六份月报全都写着同一个数字，3 月那份明明减了 7 kg 却显示速率接近 0。
+    rate = weight_trend_pct_per_week(trend_in, days=max(span, 14))
     body_block = {
         "raw": [{"date": d, "kg": v} for d, v in raw_w],
         "trend": [{"date": d, "kg": round(v, 2)} for d, v in trend_in],
-        "latest_trend_kg": round(trend[-1][1], 2) if trend else None,
+        "latest_trend_kg": round(trend_in[-1][1], 2) if trend_in else None,
         "change_kg": (round(trend_in[-1][1] - trend_in[0][1], 2)
                       if len(trend_in) >= 2 else None),
         "rate_pct_per_week": round(rate, 2) if rate is not None else None,

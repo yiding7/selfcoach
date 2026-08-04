@@ -14,6 +14,14 @@ profile/*
 # 模板要提交，供其他人参照填写（注意：.gitignore 不支持行尾注释）
 !profile/*.example.md
 chat-history/
+# knowledge/library/ 是你自己的专业资料（教材、课程、笔记）。
+# 只提交目录骨架、README 和 INDEX 模板，内容一律留在本地。
+knowledge/library/*
+!knowledge/library/README.md
+!knowledge/library/INDEX.example.md
+!knowledge/library/*/
+knowledge/library/*/*
+!knowledge/library/*/.gitkeep
 # 想跨设备同步的话，在 data/ 里单独 init 一个私有仓库，
 # 或者用 `hc export` 打包带走。详见 README。
 data/
