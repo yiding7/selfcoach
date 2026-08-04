@@ -117,6 +117,10 @@ def classify(name: str, raw_type: str | None = None) -> Classification:
 
 
 def classify_movement(movement: dict) -> Classification:
+    # exetype=cardio 是训记给有氧/苹果健康记录打的明确标记，
+    # 比从名字猜可靠得多（苹果健康的名字可能是 Cycling、爬楼梯、甚至占位符）
+    if movement.get("exetype") == "cardio":
+        return Classification("有氧", "exetype")
     return classify(movement.get("name", ""), movement.get("raw_type"))
 
 

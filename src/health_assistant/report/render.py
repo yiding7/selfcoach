@@ -286,6 +286,103 @@ def _section_body(model: dict) -> str:
 </section>"""
 
 
+CONF_LABEL = {"exact": "同一动作", "variant": "同族变体",
+              "pattern": "同类发力模式", "group": "仅同部位", "none": "无可比数据"}
+
+
+def _section_movement_progress(model: dict) -> str:
+    """逐动作纵向。最可靠的一层 —— 每个动作和它自己上一次比。"""
+    items = model.get("movement_progress") or []
+    if not items:
+        return ""
+    tracked = [m for m in items if not m["is_new"]]
+    fresh = [m for m in items if m["is_new"]]
+    if not tracked and not fresh:
+        return ""
+
+    rows = "".join(
+        f'<tr><td>{esc(m["name"])}'
+        + (f'<br><span class="muted small">对照 {esc(m["matched_name"])}</span>'
+           if m["confidence"] == "variant" else "")
+        + f'</td><td class="muted small">{esc(m["pattern"])}</td>'
+        f'<td class="muted small">{esc(m["last_date"] or "—")}'
+        + (f'<br>{m["days_since"]} 天前' if m["days_since"] is not None else "")
+        + f'</td><td class="num">{esc(m["top_load"]["text"])}</td>'
+        f'<td class="num">{esc(m["reps"]["text"])}</td>'
+        f'<td class="num">{esc(m["e1rm"]["text"])}</td></tr>'
+        for m in tracked)
+
+    new_note = ""
+    if fresh:
+        new_note = (f'<p class="muted small">本次第一次做（暂无对比）：'
+                    f'{esc("、".join(m["name"] for m in fresh))}</p>')
+
+    return f"""<section class="card">
+<h2>逐动作纵向</h2>
+<p class="muted small">每个动作和<strong>它自己</strong>上一次做的时候比。
+这一层不受当次选材变化影响 —— 哪怕这个动作隔了三次训练才再做，也能干净地比出进步。</p>
+{'<div class="scroll-x"><table><thead><tr><th>动作</th><th>模式</th><th>上次</th>'
+ '<th class="num">顶组</th><th class="num">总次数</th>'
+ '<th class="num">估算 1RM</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+ if tracked else ''}
+{new_note}
+</section>"""
+
+
+def _section_patterns(model: dict) -> str:
+    """按发力模式。变体互换时仍然成立。"""
+    items = model.get("pattern_comparisons") or []
+    if not items:
+        return ""
+    blocks = []
+    for pc in items:
+        head = (f'<h3>{esc(pc["group"])}·{esc(pc["pattern"])}</h3>'
+                + (f'<p class="muted small">{esc(pc["note"])}</p>' if pc.get("note") else ""))
+        if not pc["last_date"]:
+            blocks.append(head + '<p class="muted small">最近没有可比的同模式训练。</p>')
+            continue
+        cmp_note = ""
+        if pc["load_confidence"] == "pattern":
+            cmp_note = ('<p class="muted small">两次动作完全不同，所以只比组数和容量，'
+                        '不比重量 —— 不同动作的重量刻度没有可比性。</p>')
+        sel = ""
+        if pc["movements_then"] and set(pc["movements_then"]) != set(pc["movements_now"]):
+            sel = (f'<p class="muted small">上次：{esc("、".join(pc["movements_then"]))}'
+                   f'<br>本次：{esc("、".join(pc["movements_now"]))}</p>')
+        blocks.append(
+            head
+            + f'<div class="kpis">'
+              f'<div class="kpi"><div class="k">组数</div>'
+              f'<div class="v" style="font-size:15px">{esc(pc["sets"]["text"])}</div></div>'
+              f'<div class="kpi"><div class="k">容量</div>'
+              f'<div class="v" style="font-size:15px">{esc(pc["volume"]["text"])}</div></div>'
+              f'<div class="kpi"><div class="k">对比依据</div>'
+              f'<div class="v" style="font-size:15px">'
+              f'{esc(CONF_LABEL.get(pc["load_confidence"], "—"))}</div>'
+              f'<div class="s">{esc(pc["last_date"])}　{pc["days_since"]} 天前</div>'
+              f'</div></div>'
+            + sel + cmp_note)
+    return f'<section class="card"><h2>按发力模式</h2>{"".join(blocks)}</section>'
+
+
+def _section_balance(model: dict) -> str:
+    """结构平衡。普通健身 App 给不出的那一层。"""
+    items = model.get("balance") or []
+    if not items:
+        return ""
+    rows = "".join(
+        f'<li class="f-bad"><strong>{esc(b["detail"])}</strong><br>'
+        f'<span class="muted">{esc(b["why"])}</span><br>'
+        f'<span style="color:var(--accent)">→ {esc(b["fix"])}</span></li>'
+        for b in items)
+    return f"""<section class="card">
+<h2>训练结构平衡</h2>
+<p class="muted small">看的是<strong>过去 28 天</strong>的滚动窗口，不是单次训练。
+单次有侧重完全正常，甚至是好事；值得提示的是持续几周的结构性缺失。</p>
+<ul class="findings">{rows}</ul>
+</section>"""
+
+
 def _section_comparison(model: dict) -> str:
     comps = model.get("comparisons") or []
     if not comps:
@@ -446,6 +543,9 @@ def render(model: dict) -> str:
         _section_groups(model),
         _section_bodymap(model),
         _section_comparison(model),
+        _section_movement_progress(model),
+        _section_patterns(model),
+        _section_balance(model),
         _section_findings(model),
         _section_prescriptions(model),
         _narrative(model, "body"),

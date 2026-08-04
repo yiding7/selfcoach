@@ -186,6 +186,8 @@ def cmd_summary(args) -> int:
 def cmd_compare(args) -> int:
     from .analytics.compare import compare_session
     from .analytics.findings import check_invariants, evaluate, split
+    from .analytics.progress import (CONFIDENCE_LABEL, balance_findings,
+                                     movement_progress, pattern_comparisons)
 
     stats, _ = _load_stats()
     if not stats:
@@ -231,7 +233,49 @@ def cmd_compare(args) -> int:
         if c.dropped:
             print(f"  本次没做：{'、'.join(c.dropped)}")
 
-    findings = evaluate(target, comparisons)
+    # 三个新视角
+    mprog = movement_progress(target, history)
+    pcmps = pattern_comparisons(target, history)
+    if args.group:
+        mprog = [m for m in mprog if m.group == args.group]
+        pcmps = [p for p in pcmps if p.group == args.group]
+    balance = balance_findings(stats, target.date)
+    if args.group:
+        balance = [b for b in balance if b.group == args.group]
+
+    if mprog:
+        print(f"\n{'═' * 62}")
+        print("逐动作纵向（和这个动作自己上一次比）")
+        print("═" * 62)
+        for mp in sorted(mprog, key=lambda m: (m.group, m.pattern, m.name)):
+            tag = CONFIDENCE_LABEL[mp.confidence]
+            if mp.confidence == "none":
+                print(f"  {mp.name}  [{mp.pattern}]  ← 本地历史里第一次做，暂无对比")
+                continue
+            src = f"{mp.last_date}"
+            if mp.confidence == "variant":
+                src += f" 的「{mp.matched_name}」"
+            print(f"  {mp.name}  [{mp.pattern}]  vs {src}（{tag}，{mp.days_since} 天前）")
+            print(f"      顶组 {mp.top_load.fmt('kg')}   总次数 {mp.reps.fmt('次', 0)}"
+                  f"   估算1RM {mp.e1rm.fmt('kg')}")
+
+    if pcmps:
+        print(f"\n{'═' * 62}")
+        print("按发力模式（动作换了也能比）")
+        print("═" * 62)
+        for pc in pcmps:
+            if not pc.has_anchor:
+                print(f"  {pc.group}·{pc.pattern}  ← 最近没有可比的同模式训练")
+                continue
+            print(f"  {pc.group}·{pc.pattern}  vs {pc.last_date}（{pc.days_since} 天前，"
+                  f"{CONFIDENCE_LABEL[pc.load_confidence]}）")
+            print(f"      组数 {pc.sets.fmt('组', 0)}   容量 {pc.volume.fmt('kg', 0)}")
+            if pc.movements_then and set(pc.movements_then) != set(pc.movements_now):
+                print(f"      上次：{'、'.join(pc.movements_then)}")
+                print(f"      本次：{'、'.join(pc.movements_now)}")
+
+    findings = evaluate(target, comparisons, movement_progress=mprog,
+                        pattern_comparisons=pcmps, balance=balance)
     buckets = split(findings)
 
     print(f"\n{'═' * 62}")

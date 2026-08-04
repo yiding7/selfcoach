@@ -112,16 +112,34 @@ def check(*, verbose: bool = False) -> int:
                  + ("" if meals else " —— 可以直接口述，助手会帮你记"))
 
     # ── 知识库 ──
-    lines.append(f"\n{'知识库':─<20}")
+    lines.append(f"\n{'知识库（通用，可分享）':─<16}")
     for fname, desc in (
         ("persona.md", "教练人格"),
         ("safety-boundaries.md", "医疗安全边界"),
         ("movement-taxonomy.json", "动作肌群表"),
-        ("food-traffic-light-guide.md", "红黄绿灯饮食指南"),
+        ("movement-patterns.json", "动作模式表"),
+        ("pattern-balance.json", "结构平衡规则"),
+        ("training-landmarks.json", "训练量参考区间"),
     ):
         p = KNOWLEDGE_DIR / fname
         mark = OK if p.exists() else WARN
         lines.append(f"  {mark.rstrip()} {desc}{'' if p.exists() else '  ← 缺失'}")
+
+    # profile/ 是个人隐私，不进版本库。缺了不是错误，只是助手会少一些上下文。
+    lines.append(f"\n{'个人档案（私密，不进版本库）':─<14}")
+    profile_dir = ROOT / "profile"
+    for fname, desc in (
+        ("personal-context.md", "个人档案（病史/用药/偏好）"),
+        ("food-traffic-light.md", "个人化红黄绿灯"),
+    ):
+        p = profile_dir / fname
+        if p.exists():
+            lines.append(f"  {OK} {desc}")
+        else:
+            lines.append(f"  {INFO}{desc} —— 未填写")
+    if not (profile_dir / "personal-context.md").exists():
+        lines.append("     照着 profile/personal-context.example.md 填一份，"
+                     "助手的建议会贴合得多")
 
     lines.append("")
     lines.append("=" * 52)

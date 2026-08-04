@@ -166,11 +166,20 @@ def normalize_set(raw: dict, *, unit_hint: str | None = None, kind: str = "work"
     return {k: v for k, v in out.items() if v is not None or k in ("weight_kg", "reps", "rpe")}
 
 
-def normalize_movement(raw: dict) -> dict:
+# 苹果健康同步过来的动作名是占位符，真正的运动类型在训练标题里
+# （name="AppleHealthWorkout" / title="爬楼梯"）。直接用占位符会导致
+# 所有苹果健康记录挤成同一个"动作"，既没法分类也没法对比。
+_APPLE_PLACEHOLDERS = {"applehealthworkout", "healthkitworkout", "workout"}
+
+
+def normalize_movement(raw: dict, *, session_title: str = "") -> dict:
     exetype = (raw.get("exetype") or "").strip()
+    name = (raw.get("name") or "").strip()
+    if name.lower() in _APPLE_PLACEHOLDERS and session_title:
+        name = session_title
     return {
         "index": raw.get("index"),
-        "name": (raw.get("name") or "").strip(),
+        "name": name,
         # 训记返回的肌群中文名。厂商文档没写这个字段，但真实响应里有。
         # 经常为空 —— 所以 analytics 层必须有关键词兜底分类器。
         "raw_type": (raw.get("type") or "").strip() or None,
@@ -212,8 +221,8 @@ def normalize_train(raw: dict, *, datestr: str) -> dict:
         "note": note_text,
         "kcal": kcal,
         "truncated": bool(raw.get("truncated")),
-        "movements": [normalize_movement(m) for m in (raw.get("movements") or [])
-                      if isinstance(m, dict)],
+        "movements": [normalize_movement(m, session_title=(raw.get("title") or "").strip())
+                      for m in (raw.get("movements") or []) if isinstance(m, dict)],
     }
     hr = raw.get("heartRate")
     if hr is not None:

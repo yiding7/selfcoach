@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from .compare import GroupComparison
+from .progress import at_least
 from .metrics import SessionStats
 
 Polarity = Literal["优点", "缺点", "改进点", "信息"]
@@ -276,10 +277,200 @@ def evaluate_session(stats: SessionStats, comparisons: list[GroupComparison],
     return out
 
 
-def evaluate(stats: SessionStats, comparisons: list[GroupComparison]) -> list[Finding]:
+def evaluate_movement_progress(items) -> list[Finding]:
+    """动作级纵向的结论。
+
+    这是最可靠的一层：每个动作和**它自己**上一次比，完全不受当次选材变化影响。
+    宽距高位下拉哪怕隔了三次训练才再做，也能干净地比出进步。
+
+    负荷类结论只在 exact（同名）时给；variant（同族不同握法）时也给，
+    但必须标注握法变了、重量不完全可比。
+    """
+    out: list[Finding] = []
+    for mp in items:
+        if mp.confidence == "none":
+            continue
+
+        caveat = ""
+        if mp.confidence == "variant":
+            caveat = f"（上次做的是「{mp.matched_name}」，握法/版本不同，重量只能大致对照）"
+
+        gap = f"距上次 {mp.days_since} 天" if mp.days_since is not None else ""
+
+        e_pct = mp.e1rm.pct_change
+        load_pct = mp.top_load.pct_change
+        reps_up = (mp.reps.abs_change or 0) > 0
+
+        if mp.assisted:
+            # 辅助器械：配重降低 = 变强，方向和普通动作相反
+            if load_pct is not None and load_pct <= -2:
+                out.append(Finding(
+                    code="ASSIST_REDUCED", polarity="优点", subject=mp.name,
+                    text=f"{mp.name} 辅助配重从 {mp.top_load.before:.1f}kg 降到 "
+                         f"{mp.top_load.after:.1f}kg，说明自身能出的力更多了{gap and '，' + gap}。",
+                    metrics={"before": mp.top_load.before, "after": mp.top_load.after,
+                             "pct": load_pct}))
+            continue
+
+        if e_pct is not None and e_pct >= 2.0:
+            out.append(Finding(
+                code="MOVEMENT_PROGRESS", polarity="优点", subject=mp.name,
+                text=f"{mp.name} 估算 1RM {mp.e1rm.fmt('kg')}{caveat}"
+                     f"{gap and '，' + gap}。",
+                metrics={"before": mp.e1rm.before, "after": mp.e1rm.after,
+                         "pct": e_pct, "confidence": mp.confidence}))
+        elif load_pct is not None and load_pct >= 2.0:
+            out.append(Finding(
+                code="MOVEMENT_LOAD_UP", polarity="优点", subject=mp.name,
+                text=f"{mp.name} 顶组重量 {mp.top_load.fmt('kg')}，加重成功{caveat}。",
+                metrics={"before": mp.top_load.before, "after": mp.top_load.after,
+                         "pct": load_pct, "confidence": mp.confidence}))
+        elif (load_pct is not None and abs(load_pct) < 2.0 and reps_up):
+            out.append(Finding(
+                code="MOVEMENT_REPS_UP", polarity="优点", subject=mp.name,
+                text=f"{mp.name} 同样的重量下总次数 {mp.reps.fmt('次', 0)}，"
+                     f"这是加重之前该走的一步{caveat}。",
+                metrics={"reps_before": mp.reps.before, "reps_after": mp.reps.after,
+                         "load": mp.top_load.after, "confidence": mp.confidence}))
+        elif e_pct is not None and e_pct <= -5.0 and mp.confidence == "exact":
+            out.append(Finding(
+                code="MOVEMENT_DOWN", polarity="缺点", subject=mp.name, severity=1,
+                text=f"{mp.name} 估算 1RM 回落 {e_pct:+.1f}%（{mp.e1rm.fmt('kg')}）"
+                     f"{gap and '，' + gap}。",
+                metrics={"before": mp.e1rm.before, "after": mp.e1rm.after, "pct": e_pct},
+                links_to=["ACTION_MOVEMENT_FIRST"]))
+            out.append(Finding(
+                code="ACTION_MOVEMENT_FIRST", polarity="改进点", subject=mp.name,
+                text=f"下次把 {mp.name} 排到这个部位的最前面做，在最有力气的时候练它；"
+                     f"目标先回到 {mp.top_load.before:.1f}kg。单次回落很常见，"
+                     f"睡眠、间隔太久、前面动作消耗都会影响，不用急。",
+                metrics={"target_load": mp.top_load.before}))
+
+        if mp.days_since is not None and mp.days_since >= 21 and mp.occurrences >= 2:
+            out.append(Finding(
+                code="MOVEMENT_STALE", polarity="信息", subject=mp.name,
+                text=f"{mp.name} 距上次做已经 {mp.days_since} 天了。"
+                     f"间隔久了重量掉一点是正常的，按现在的感觉重新找重量就行。",
+                metrics={"days": mp.days_since}))
+    return out
+
+
+def evaluate_patterns(items) -> list[Finding]:
+    """模式级结论。变体互换时仍然成立 —— 宽距/窄距/反握下拉都是垂直拉。"""
+    out: list[Finding] = []
+    for pc in items:
+        if not pc.has_anchor:
+            out.append(Finding(
+                code="PATTERN_NEW", polarity="信息", subject=f"{pc.group}·{pc.pattern}",
+                text=f"最近一段时间第一次练到「{pc.pattern}」"
+                     f"（{'、'.join(pc.movements_now)}）。"
+                     + (f"{pc.note}。" if pc.note else ""),
+                metrics={"sets": pc.sets.after}))
+            continue
+
+        # 两次没有共同动作时，吨位差异主要反映**动作选择**而不是努力程度。
+        # 单臂绳索弯举和双臂哑铃弯举的吨位天然差一大截，拿来比会得出
+        # 「二头容量掉了 74%」这种正确但误导的结论。
+        # 这种情况下只比组数 —— 组数跨动作是稳健的。
+        if not at_least(pc.load_confidence, "variant"):
+            drop_sets = (pc.sets.before or 0) - (pc.sets.after or 0)
+            pct_sets = pc.sets.pct_change
+            if pct_sets is not None and pct_sets <= -40 and drop_sets >= 3:
+                out.append(Finding(
+                    code="PATTERN_SETS_DOWN", polarity="缺点",
+                    subject=f"{pc.group}·{pc.pattern}", severity=1,
+                    text=f"「{pc.pattern}」的组数比上次少了 {drop_sets:.0f} 组"
+                         f"（{pc.sets.fmt('组', 0)}）。两次动作完全不同，"
+                         f"所以只比组数，不比吨位 —— 不同动作的吨位没有可比性。",
+                    metrics={"before": pc.sets.before, "after": pc.sets.after,
+                             "pct": pct_sets},
+                    links_to=["ACTION_PATTERN_RESTORE"]))
+                out.append(Finding(
+                    code="ACTION_PATTERN_RESTORE", polarity="改进点",
+                    subject=f"{pc.group}·{pc.pattern}",
+                    text=f"下次这个部位补回 {drop_sets:.0f} 组「{pc.pattern}」。"
+                         f"动作可以随便换，同类发力模式就行。",
+                    metrics={"add_sets": drop_sets}))
+            elif pc.movements_then and set(pc.movements_then) != set(pc.movements_now):
+                out.append(Finding(
+                    code="PATTERN_SELECTION_CHANGED", polarity="信息",
+                    subject=f"{pc.group}·{pc.pattern}",
+                    text=f"「{pc.pattern}」这次换了一批动作"
+                         f"（上次 {'、'.join(pc.movements_then[:3])}，"
+                         f"本次 {'、'.join(pc.movements_now[:3])}），"
+                         f"组数 {pc.sets.fmt('组', 0)}。"
+                         f"换动作本身有价值，不是问题；只是重量和吨位不能直接对照。",
+                    metrics={"sets_before": pc.sets.before, "sets_after": pc.sets.after}))
+            continue
+
+        pct = pc.volume.pct_change
+        if pct is not None and pct <= -30:
+            out.append(Finding(
+                code="PATTERN_VOLUME_DOWN", polarity="缺点",
+                subject=f"{pc.group}·{pc.pattern}", severity=1,
+                text=f"「{pc.pattern}」的容量比上次少了 {abs(pct):.0f}%"
+                     f"（{pc.volume.fmt('kg', 0)}，组数 {pc.sets.fmt('组', 0)}）。",
+                metrics={"before": pc.volume.before, "after": pc.volume.after, "pct": pct},
+                links_to=["ACTION_PATTERN_RESTORE"]))
+            need = max(1, int((pc.sets.before or 0) - (pc.sets.after or 0)))
+            out.append(Finding(
+                code="ACTION_PATTERN_RESTORE", polarity="改进点",
+                subject=f"{pc.group}·{pc.pattern}",
+                text=f"下次这个部位补回 {need} 组「{pc.pattern}」就能回到上次水平。"
+                     f"动作可以换，同类发力模式就行。",
+                metrics={"add_sets": need}))
+        elif pct is not None and 5 <= pct <= 30:
+            out.append(Finding(
+                code="PATTERN_VOLUME_UP", polarity="优点",
+                subject=f"{pc.group}·{pc.pattern}",
+                text=f"「{pc.pattern}」容量 {pc.volume.fmt('kg', 0)}（{pct:+.0f}%），"
+                     f"是健康的递进幅度。",
+                metrics={"before": pc.volume.before, "after": pc.volume.after, "pct": pct}))
+    return out
+
+
+def evaluate_balance(items) -> list[Finding]:
+    """结构平衡。滚动窗口内的模式缺失，是普通健身 App 给不出的洞察。"""
+    out: list[Finding] = []
+    for i, bf in enumerate(items):
+        action_code = f"ACTION_BALANCE_{i}"
+        out.append(Finding(
+            code=f"BALANCE_{bf.kind.upper()}_{i}", polarity="缺点",
+            subject=f"{bf.group}·{bf.subject}", severity=bf.severity,
+            text=f"{bf.detail}。{bf.why}",
+            metrics={"group": bf.group, "subject": bf.subject},
+            links_to=[action_code]))
+        out.append(Finding(
+            code=action_code, polarity="改进点",
+            subject=f"{bf.group}·{bf.subject}",
+            text=bf.fix, metrics={"group": bf.group}))
+    return out
+
+
+def evaluate(stats: SessionStats, comparisons: list[GroupComparison],
+             *, movement_progress=None, pattern_comparisons=None,
+             balance=None) -> list[Finding]:
+    """汇总全部视角的结论。
+
+    新的三个视角是可选参数，所以旧调用方（只传 comparisons）依然工作。
+    传了的话，动作级会成为进步类结论的主要来源 —— 它最可靠。
+    """
     out = evaluate_session(stats, comparisons)
-    for c in comparisons:
-        out.extend(evaluate_group(c))
+
+    if movement_progress is not None:
+        out.extend(evaluate_movement_progress(movement_progress))
+        # 有动作级视角时，肌群级只保留「为什么不可比」这类说明，
+        # 不再重复出进步/退步结论，避免同一件事说两遍。
+        for c in comparisons:
+            out.extend(f for f in evaluate_group(c) if f.polarity == "信息")
+    else:
+        for c in comparisons:
+            out.extend(evaluate_group(c))
+
+    if pattern_comparisons is not None:
+        out.extend(evaluate_patterns(pattern_comparisons))
+    if balance is not None:
+        out.extend(evaluate_balance(balance))
     return out
 
 

@@ -65,11 +65,11 @@
       "note": "Tabata 后缀一律按有氧处理"
     },
     {
-      "pattern": "跑步|快走|慢跑|原地跑|后踢腿跑|高抬腿|爬坡走|爬楼梯|步行|跑步机",
+      "pattern": "跑步|快走|慢跑|原地跑|后踢腿跑|高抬腿|爬坡走|爬楼梯|步行|跑步机|Running|Walking|Hiking|自行车|骑行",
       "group": "有氧"
     },
     {
-      "pattern": "动感单车|椭圆机|划船机|滑雪机|漫步机|台阶器|登山机|风阻单车|卧式单车",
+      "pattern": "动感单车|椭圆机|划船机|滑雪机|漫步机|台阶器|登山机|风阻单车|卧式单车|Cycling|Rowing|Swimming|Elliptical|StairClimbing|爬楼",
       "group": "有氧"
     },
     {

@@ -12,7 +12,7 @@ license: MIT
 
 ## 先读
 
-- `knowledge/food-traffic-light-guide.md` —— 红黄绿灯框架
+- `profile/food-traffic-light.md` —— 红黄绿灯框架
 - `knowledge/safety-boundaries.md` —— 边界
 
 ## 红黄绿灯不是戒律

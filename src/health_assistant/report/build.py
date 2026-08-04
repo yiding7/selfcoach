@@ -22,6 +22,8 @@ from ..analytics.findings import evaluate, split
 from ..analytics.metrics import rolling_weight, session_stats, weight_at
 from ..analytics.prescribe import (prescribe_group, volume_status,
                                    weight_trend_pct_per_week)
+from ..analytics.progress import (balance_findings, movement_progress,
+                                  pattern_comparisons)
 from ..taxonomy import sort_groups
 
 SCHEMA = "ha.report/1"
@@ -149,12 +151,40 @@ def build(kind: str, start: dt.date, end: dt.date) -> dict:
             if rx.has_content:
                 prescriptions.append(_d(rx))
 
-    # ── 结论 ──
+    # ── 多视角对比 ──
+    mprog_block, pattern_block = [], []
     findings_raw = []
+    balance = balance_findings(stats_all, end.isoformat())
+
     if period:
         latest = period[-1]
         history = [s for s in stats_all if s.id != latest.id]
-        findings_raw = evaluate(latest, compare_session(latest, history))
+        mprog = movement_progress(latest, history)
+        pcmps = pattern_comparisons(latest, history)
+
+        mprog_block = [{
+            "name": m.name, "group": m.group, "pattern": m.pattern,
+            "confidence": m.confidence, "matched_name": m.matched_name,
+            "last_date": m.last_date, "days_since": m.days_since,
+            "occurrences": m.occurrences, "is_new": m.is_new,
+            "loads_comparable": m.loads_comparable,
+            "sets": _delta(m.sets, " 组"), "reps": _delta(m.reps, " 次"),
+            "top_load": _delta(m.top_load, " kg"), "volume": _delta(m.volume, " kg"),
+            "e1rm": _delta(m.e1rm, " kg"),
+        } for m in mprog]
+
+        pattern_block = [{
+            "group": p_.group, "pattern": p_.pattern, "note": p_.note,
+            "last_date": p_.last_date, "days_since": p_.days_since,
+            "load_confidence": p_.load_confidence,
+            "sets": _delta(p_.sets, " 组"), "volume": _delta(p_.volume, " kg"),
+            "top_e1rm": _delta(p_.top_e1rm, " kg"),
+            "movements_now": p_.movements_now, "movements_then": p_.movements_then,
+        } for p_ in pcmps]
+
+        findings_raw = evaluate(latest, compare_session(latest, history),
+                                movement_progress=mprog,
+                                pattern_comparisons=pcmps, balance=balance)
     buckets = split(findings_raw)
     findings_block = {k: [_d(f) for f in v] for k, v in buckets.items()}
 
@@ -241,6 +271,11 @@ def build(kind: str, start: dt.date, end: dt.date) -> dict:
         } for s in period],
         "groups": groups_block,
         "comparisons": comparisons,
+        "movement_progress": mprog_block,
+        "pattern_comparisons": pattern_block,
+        "balance": [{"group": b.group, "kind": b.kind, "subject": b.subject,
+                     "detail": b.detail, "why": b.why, "fix": b.fix,
+                     "severity": b.severity} for b in balance],
         "prescriptions": prescriptions,
         "findings": findings_block,
         "body": body_block,
