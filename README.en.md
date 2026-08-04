@@ -1,4 +1,4 @@
-# Health Assistant — Coach, Nutritionist & Health Advisor in One
+# selfcoach — Coach, Nutritionist & Health Advisor in One
 
 > A **model-agnostic, zero-install** personal health toolkit.
 > Sync training data → a deterministic engine computes same-muscle-group comparisons
@@ -35,8 +35,8 @@ without them, log in natural language — the analysis is exactly the same.
 ## Five-minute start
 
 ```bash
-git clone <your-fork-url> health-assistant
-cd health-assistant
+git clone git@github.com:yiding7/selfcoach.git
+cd selfcoach
 ./install.sh              # creates dirs, links skills into your agent host. Downloads nothing
 cp .env.example .env      # fill in Xunji keys, or skip entirely
 ./scripts/hc doctor       # checks environment, credentials, local data

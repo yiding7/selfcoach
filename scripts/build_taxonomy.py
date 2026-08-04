@@ -34,7 +34,7 @@ ROW_RE = re.compile(r"^\|\s*(\d+)\s*\|\s*(.+?)\s*\|$")
 def fetch_names(*, use_cache: bool = True) -> list[str]:
     if use_cache and CACHE.exists():
         return [n for n in CACHE.read_text(encoding="utf-8").splitlines() if n.strip()]
-    req = urllib.request.Request(CATALOG_URL, headers={"User-Agent": "health-assistant"})
+    req = urllib.request.Request(CATALOG_URL, headers={"User-Agent": "selfcoach"})
     with urllib.request.urlopen(req, timeout=30) as r:
         md = r.read().decode("utf-8")
     names = []

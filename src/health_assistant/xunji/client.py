@@ -24,7 +24,7 @@ from pathlib import Path
 
 from ..config import DATA_DIR, get_key, redact
 
-USER_AGENT = "health-assistant/0.1 (+https://github.com/)"
+USER_AGENT = "selfcoach/0.1 (+https://github.com/yiding7/selfcoach)"
 
 RATE_STATE = DATA_DIR / ".ratelimit.json"
 
