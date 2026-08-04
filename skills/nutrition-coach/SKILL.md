@@ -14,6 +14,10 @@ license: MIT
 
 - `profile/food-traffic-light.md` —— 红黄绿灯框架
 - `knowledge/safety-boundaries.md` —— 边界
+- `knowledge/library/INDEX.md` —— **使用者自己的营养资料库**（存在的话）。
+  先看 INDEX 判断有没有相关的，有就打开那一份。按 INDEX 定位，别通读整个目录。
+  资料里的用药、治病补剂方案一律不照搬，转医生；和 `health-constraints.md`
+  冲突时明确说出冲突，不要默默选一边。
 
 ## 红黄绿灯不是戒律
 

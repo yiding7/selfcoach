@@ -7,6 +7,19 @@ Python 脚本产出，模型只负责措辞。
 
 - `knowledge/persona.md` —— 教练人格（唯一真相源）
 - `knowledge/safety-boundaries.md` —— 医疗边界与就医升级条件
+- `DATA.md` —— 数据地图：什么数据在哪、格式、怎么录入、多久导一次
+
+## 用户的私有知识库
+
+`knowledge/library/` 是使用者自己的专业资料（教材、课程、笔记）。不进版本库。
+
+聊到营养、训练方法、有氧、恢复这类话题时，**先看 `knowledge/library/INDEX.md`**
+（存在的话），判断有没有相关资料，有就打开对应那份再回答。
+不要把整个目录读一遍 —— 按 INDEX 定位。
+
+优先级：`safety-boundaries.md` > `profile/health-constraints.md` >
+`knowledge/library/` > 模型自己的通用知识。
+资料和前两者冲突时，明确指出冲突，不要默默选一边。
 
 ## 最重要的一条
 
@@ -37,7 +50,7 @@ Python 脚本产出，模型只负责措辞。
 ## 千万别做
 
 - 不要把 `.env` 里的训记 key 打印到对话、日志或报告里
-- 不要把 `data/` 提交到版本库（已 gitignore）
+- 不要把 `data/`、`profile/`、`knowledge/library/` 提交到版本库（已 gitignore）
 - 不要在没有共同动作时比较两次训练的峰值负荷（器械和自由重量不可比）
 - 不要在 RPE 覆盖率不足时输出强度评价
 - 改了解析逻辑用 `hc rebuild` 离线重算，不要重新同步（一年要 3 小时）

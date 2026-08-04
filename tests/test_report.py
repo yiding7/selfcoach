@@ -190,3 +190,72 @@ class TestBodyMap:
     def test_handles_empty(self):
         from health_assistant.report.body_map import body_heatmap
         assert "<svg" in body_heatmap({})
+
+
+class TestBodyBlockIsPeriodScoped:
+    """月报的体重块必须只描述**本期**，不能泄漏「今天」的数字。
+
+    回归：`build()` 曾把全量均线传给 `weight_trend_pct_per_week()`，
+    又用 `trend[-1]` 当期末体重。结果六份月报的 latest_trend_kg 全是同一个数，
+    3 月那份实际减了 7.23kg 却显示 +0.03%/周 —— 因为它算的是 7 月。
+    """
+
+    @pytest.fixture
+    def patched(self, monkeypatch):
+        """1 月匀速下降 100→90，2–3 月完全持平在 90。
+
+        用 3 月而不是 2 月做「持平」断言：7 日均线会跨月边界带入 1 月的下降，
+        所以 2 月头几天的均线仍在往下走（实测 -0.2%/周）—— 那是移动均线的正确行为，
+        不是缺陷。3 月已经完全脱离 1 月的影响，可以断言精确的 0。
+        """
+        import datetime as dt
+        import importlib
+        # 不能写 `from health_assistant.report import build` ——
+        # 包的 __init__ 把同名函数导出了，拿到的会是函数不是模块。
+        build_mod = importlib.import_module("health_assistant.report.build")
+
+        body = []
+        for i in range(31):                      # 1 月：100 → 90
+            d = (dt.date(2026, 1, 1) + dt.timedelta(days=i)).isoformat()
+            body.append({"id": f"w{d}", "date": d, "type": "weight",
+                         "value": 100.0 - i * (10.0 / 30)})
+        for i in range(59):                      # 2–3 月：持平 90
+            d = (dt.date(2026, 2, 1) + dt.timedelta(days=i)).isoformat()
+            body.append({"id": f"w{d}", "date": d, "type": "weight", "value": 90.0})
+
+        monkeypatch.setattr(build_mod.store, "load_body", lambda: body)
+        monkeypatch.setattr(build_mod.store, "load_sessions", lambda: [])
+        monkeypatch.setattr(build_mod.store, "load_meals", lambda **kw: [])
+        monkeypatch.setattr(build_mod.store, "load_index", lambda year: {})
+        return build_mod
+
+    def test_january_reports_january(self, patched):
+        import datetime as dt
+        b = patched.build("monthly", dt.date(2026, 1, 1), dt.date(2026, 1, 31))["body"]
+        assert b["latest_trend_kg"] < 95, "期末体重必须是本期最后一天，不是今天"
+        assert b["change_kg"] < 0
+        assert b["rate_pct_per_week"] < 0, "1 月在减重，速率必须为负"
+
+    def test_march_reports_march(self, patched):
+        import datetime as dt
+        b = patched.build("monthly", dt.date(2026, 3, 1), dt.date(2026, 3, 31))["body"]
+        assert b["rate_pct_per_week"] == 0.0, "3 月完全持平，速率必须是 0"
+        assert b["change_kg"] == 0.0
+
+    def test_two_periods_do_not_share_a_number(self, patched):
+        """核心断言：不同周期的体重块不能得出同一个结论。
+
+        缺陷版本下这两组数字完全相同 —— 因为两份报告算的都是「今天」。
+        """
+        import datetime as dt
+        jan = patched.build("monthly", dt.date(2026, 1, 1), dt.date(2026, 1, 31))["body"]
+        mar = patched.build("monthly", dt.date(2026, 3, 1), dt.date(2026, 3, 31))["body"]
+        assert jan["latest_trend_kg"] != mar["latest_trend_kg"]
+        assert jan["rate_pct_per_week"] != mar["rate_pct_per_week"]
+        assert jan["rate_pct_per_week"] < -1.0, "1 月在快速减重"
+
+    def test_no_body_data_in_period_does_not_crash(self, patched):
+        import datetime as dt
+        b = patched.build("monthly", dt.date(2026, 6, 1), dt.date(2026, 6, 30))["body"]
+        assert b["latest_trend_kg"] is None
+        assert b["rate_pct_per_week"] is None
