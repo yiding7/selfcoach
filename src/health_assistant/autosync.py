@@ -27,7 +27,7 @@ from pathlib import Path
 from . import store
 from .config import DATA_DIR, ROOT
 
-LABEL = "com.health-assistant.autosync"
+LABEL = "com.selfcoach.autosync"
 PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
 LOG_PATH = DATA_DIR / "autosync.log"
 

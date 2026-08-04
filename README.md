@@ -1,4 +1,4 @@
-# Health Assistant · 健身教练 / 营养师 / 健康顾问 一体化 AI 工具
+# selfcoach · 健身教练 / 营养师 / 健康顾问 一体化 AI 工具
 
 > 一套**模型无关、即启即用**的个人健康基建。
 > 训练数据自动同步 → 确定性引擎算出进展与下次训练处方 →
@@ -49,7 +49,8 @@ Ollama，报表里的吨位、估算 1RM、对比结论**完全一致**。
 ## 快速开始
 
 ```bash
-cd health-assistant
+git clone git@github.com:yiding7/selfcoach.git
+cd selfcoach
 ./install.sh              # 建目录、把 skills 链到 agent 宿主。不下载任何东西
 cp .env.example .env      # 有训记就填 key；没有就跳过
 ./scripts/hc doctor       # 体检：环境、凭证、本地数据、个人档案

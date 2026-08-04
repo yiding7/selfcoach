@@ -1,5 +1,5 @@
 [project]
-name = "health-assistant"
+name = "selfcoach"
 version = "0.1.0"
 description = "健身教练 / 营养师 / 健康顾问 一体化 AI 工具 —— 模型无关，即启即用"
 readme = "README.md"
