@@ -53,6 +53,32 @@ def is_assisted(movement: dict) -> bool:
     return movement.get("exetype") == "help"
 
 
+# 训记的动作级难度标签（简单/正常/困难）。这是**三档主观标注，不是 RPE**：
+# 一个动作一个标，不是每组一个，而且档之间的间距没有定义。
+# 所以不做数值映射 —— 把三个档位换算成 RPE 小数会让它看起来比实际精确。
+DIFFICULTY_LABELS = {"easy": "简单", "normal": "正常", "hard": "困难"}
+
+
+def difficulty_label(movement: dict) -> str | None:
+    return DIFFICULTY_LABELS.get((movement.get("difficulty") or "").strip().lower())
+
+
+def is_timed(movement: dict) -> bool:
+    """计时类动作（平板支撑、静态保持）。成绩是秒数，不是次数。"""
+    return movement.get("exetype") == "record"
+
+
+def set_done(s: dict, movement: dict) -> bool:
+    """这一组算不算做了。
+
+    计时类动作在训记里**不需要打勾** —— app 记下时长就代表做过，`done` 恒为 false。
+    只认 `done` 会把整个平板支撑判成「一组没做」，秒数也跟着被丢掉。
+    """
+    if s.get("done"):
+        return True
+    return is_timed(movement) and bool(s.get("time_s"))
+
+
 def is_bodyweight(movement: dict, s: dict) -> bool:
     return bool(s.get("self_weight")) or movement.get("exetype") in BODYWEIGHT_EXETYPES
 
@@ -92,7 +118,7 @@ def set_load_kg(s: dict, movement: dict, bodyweight_kg: float | None,
 
 
 def set_volume_kg(s: dict, movement: dict, bodyweight_kg: float | None) -> float | None:
-    if not s.get("done"):
+    if not set_done(s, movement):
         return None
     reps = s.get("reps")
     if not reps:
@@ -135,6 +161,10 @@ class MovementStats:
     e1rm_method: str
     rpes: list[float] = field(default_factory=list)
     imbalance_pct: float | None = None
+    timed: bool = False               # 计时类动作，成绩看秒数不看吨位
+    time_s_total: float | None = None
+    best_time_s: float | None = None
+    difficulty: str | None = None     # 训记动作级难度：简单/正常/困难。不是 RPE
     volume_incomplete: bool = False   # 有组因缺体重数据算不出容量
     bodyweight: bool = False          # 自重类动作，重量数字是折算出来的
     assisted: bool = False            # exetype=help，记录的是助力配重，越大越轻松
@@ -159,6 +189,14 @@ class SessionStats:
     groups: dict[str, float]          # 肌群 → 有效组数
     rpe_coverage: float               # 记了 RPE 的组 / 有效组
     volume_incomplete: bool
+    # 标了难度的动作 / 有效动作。和 rpe_coverage 是两个独立来源：
+    # 训记的 rpe 字段实际从不填，难度标签才是这个 app 里真实可得的强度信号。
+    difficulty_coverage: float = 0.0
+
+    @property
+    def has_intensity_signal(self) -> bool:
+        """够不够做强度判断。RPE 和难度标注任一达标即可。"""
+        return (self.rpe_coverage >= 0.30) or (self.difficulty_coverage >= 0.50)
 
     @property
     def density_kg_per_min(self) -> float | None:
@@ -186,12 +224,17 @@ class SessionStats:
 def movement_stats(m: dict, bodyweight_kg: float | None) -> MovementStats:
     cls: Classification = classify_movement(m)
     sets = m.get("sets") or []
-    done = [s for s in sets if s.get("done")]
+    done = [s for s in sets if set_done(s, m)]
+    timed = is_timed(m)
 
     volumes = [set_volume_kg(s, m, bodyweight_kg) for s in done]
     known = [v for v in volumes if v is not None]
-    incomplete = any(v is None for v in volumes) and bool(done)
+    # 计时类动作本来就没有「次数 × 负荷」意义上的容量，缺的不是数据而是单位。
+    # 不标成 incomplete，否则每次练平板支撑都会误报一条「容量不完整」。
+    incomplete = (not timed) and any(v is None for v in volumes) and bool(done)
     volume = sum(known) if known else None
+
+    times = [s["time_s"] for s in done if s.get("time_s")]
 
     loads = [set_load_kg(s, m, bodyweight_kg) for s in done]
     known_loads = [x for x in loads if x is not None]
@@ -228,6 +271,10 @@ def movement_stats(m: dict, bodyweight_kg: float | None) -> MovementStats:
         e1rm_method=method,
         rpes=[s["rpe"] for s in done if s.get("rpe") is not None],
         imbalance_pct=imbalance,
+        timed=timed,
+        time_s_total=sum(times) if times else None,
+        best_time_s=max(times) if times else None,
+        difficulty=difficulty_label(m),
         volume_incomplete=incomplete,
         bodyweight=any(is_bodyweight(m, s) for s in sets) if sets else False,
         assisted=is_assisted(m),
@@ -248,6 +295,10 @@ def session_stats(session: dict, bodyweight_kg: float | None = None) -> SessionS
     sets_done = sum(ms.sets_done for ms in movements)
     rpe_count = sum(len(ms.rpes) for ms in movements)
 
+    # 难度是动作级标签，分母也必须是动作数 —— 用组数当分母会让多组动作被稀释。
+    active = [ms for ms in movements if ms.sets_done > 0]
+    tagged = [ms for ms in active if ms.difficulty]
+
     return SessionStats(
         id=session.get("id", ""),
         date=session.get("date", ""),
@@ -262,6 +313,7 @@ def session_stats(session: dict, bodyweight_kg: float | None = None) -> SessionS
         groups={g: n for g, n in groups.items() if n > 0},
         rpe_coverage=(rpe_count / sets_done) if sets_done else 0.0,
         volume_incomplete=any(ms.volume_incomplete for ms in movements),
+        difficulty_coverage=(len(tagged) / len(active)) if active else 0.0,
     )
 
 

@@ -162,10 +162,10 @@ def prescribe_group(group: str, current: SessionStats,
                 f"低于常见的最小有效容量（约 {lm['mev']} 组）。"
                 f"下次可以多加 2 组，或者本周再安排一次 {group}。")
 
-    if current.rpe_coverage < 0.3:
+    if not current.has_intensity_signal:
         rx.notes.append(
-            "顺带一提：因为这次几乎没有 RPE 记录，下面的重量建议只能靠次数推断。"
-            "如果你能给每个动作的最后一组记一个 RPE，我下次能给得准得多。")
+            "顺带一提：因为这次几乎没有强度标注，下面的重量建议只能靠次数推断。"
+            "在训记里给每个动作点一下难度（简单/正常/困难），我下次能给得准得多。")
 
     # ── 逐动作双重递进 ────────────────────────────────────────────────
     by_name = {}
@@ -212,14 +212,30 @@ def prescribe_group(group: str, current: SessionStats,
                 why=f"上次平均每组 {avg_reps:.0f} 次。当前阶段先稳住。"))
             continue
 
-        if avg_reps >= hi:
+        # 难度标注是用户自己的主观强度反馈，优先于纯次数规则：
+        # 标「困难」还硬加重是最容易受伤的路径；标「简单」则不必再等满一轮。
+        if m.difficulty == "困难" and avg_reps >= hi:
+            rx.movements.append(MovementPrescription(
+                name=m.name, sets=m.sets_done, load_kg=load,
+                rep_target=f"{lo}-{hi}",
+                change="保持重量（你标了困难）",
+                why=f"次数上看已经到 {avg_reps:.0f} 次、够加重了，"
+                    f"但你把这个动作标成了「困难」。以你的主观感受为准 —— "
+                    f"先在这个重量上再练一次，标到「正常」了再加 {step:g}kg。"))
+            continue
+
+        if avg_reps >= hi or (m.difficulty == "简单" and avg_reps >= lo):
             new_load = (load + step) if load is not None else None
+            by_easy = m.difficulty == "简单" and avg_reps < hi
             rx.movements.append(MovementPrescription(
                 name=m.name, sets=m.sets_done, load_kg=new_load,
                 rep_target=f"{lo}-{hi}",
                 change=f"加重 +{step:g}kg" + ("（每只手）" if m.unilateral else ""),
-                why=f"上次平均每组做到 {avg_reps:.0f} 次，已经到了 {hi} 次的区间上限，"
-                    f"可以加重了。加重后次数会掉回 {lo} 次左右，这是正常的。"))
+                why=(f"上次平均每组 {avg_reps:.0f} 次，还没到 {hi} 次，"
+                     f"但你把这个动作标成了「简单」—— 不用再磨一轮次数，直接加重。"
+                     if by_easy else
+                     f"上次平均每组做到 {avg_reps:.0f} 次，已经到了 {hi} 次的区间上限，"
+                     f"可以加重了。加重后次数会掉回 {lo} 次左右，这是正常的。")))
         elif avg_reps < lo:
             rx.movements.append(MovementPrescription(
                 name=m.name, sets=m.sets_done, load_kg=load,

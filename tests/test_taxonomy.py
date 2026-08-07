@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from health_assistant.taxonomy import UNKNOWN, classify
+from health_assistant.taxonomy import UNKNOWN, classify, normalize_group
 
 
 class TestApiTypeWins:
@@ -115,3 +115,30 @@ class TestCoverage:
         assert c.group == UNKNOWN
         assert c.source == "unknown"
         assert not c.is_known
+
+
+class TestXunjiTypeIsNotAlwaysAMuscleGroup:
+    """训记的 type 字段里混着动作**格式**标签，不只是肌群。
+    实测出现过：计时动作、功能性、核心稳定。
+
+    早先原样收下，结果「平板支撑_计时」被判成「计时动作」这个伪肌群，
+    跟同一个动作的「平板支撑」（腹部）不可比，也不计入腹部容量。
+    """
+
+    @pytest.mark.parametrize("raw_type", ["计时动作", "功能性"])
+    def test_format_label_falls_through_to_taxonomy(self, raw_type):
+        c = classify("平板支撑_计时", raw_type)
+        assert c.group == "腹部"
+        assert c.source != "xunji_type"
+
+    def test_core_stability_is_aliased_to_abs(self):
+        assert normalize_group("核心稳定") == "腹部"
+
+    def test_real_group_still_wins(self):
+        """认得出的肌群仍然优先于本地分类表 —— 这条不能被上面的改动破坏。"""
+        c = classify("杠铃卧推", "胸")
+        assert c.group == "胸"
+        assert c.source == "xunji_type"
+
+    def test_unknown_type_does_not_become_a_group(self):
+        assert normalize_group("计时动作") is None

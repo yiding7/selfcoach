@@ -228,13 +228,15 @@ def cmd_sessions(args) -> int:
         print("本地还没有训练记录。跑 `hc sync` 或 `hc log add`。")
         return 0
 
+    from .analytics.metrics import set_done
+
     for s in sessions:
         mins = f"{s['duration_s'] // 60} min" if s.get("duration_s") else "—"
         kcal = f" {s['kcal']:.0f} kcal" if s.get("kcal") else ""
         title = s.get("title") or "（无标题）"
         print(f"\n{s['date']}  {title}  {mins}{kcal}  [{s['source']}]")
         for m in s.get("movements") or []:
-            done = [x for x in m["sets"] if x.get("done")]
+            done = [x for x in m["sets"] if set_done(x, m)]
             t = m.get("raw_type") or "?"
             uni = " 单侧" if m.get("unilateral") else ""
             ex = f" {m['exetype']}" if m.get("exetype") else ""
@@ -270,7 +272,8 @@ def cmd_summary(args) -> int:
               + (f"  {st.duration_min:.0f} 分钟" if st.duration_min else "")
               + (f"  {st.kcal:.0f} kcal" if st.kcal else ""))
         print("═" * 62)
-        print(f"{'动作':<22}{'部位':<6}{'组':>4}{'总次':>6}{'顶组':>9}{'容量':>10}{'估算1RM':>10}")
+        print(f"{'动作':<22}{'部位':<6}{'组':>4}{'总次':>6}{'顶组':>9}{'容量':>10}"
+              f"{'估算1RM':>10}{'难度':>6}")
         print("─" * 62)
         for m in st.movements:
             top = f"{m.top_load_kg:.1f}kg" if m.top_load_kg else "—"
@@ -281,9 +284,14 @@ def cmd_summary(args) -> int:
             else:
                 vol = f"{m.volume_kg:.0f}kg"
             e = f"{m.best_e1rm:.1f}kg" if m.best_e1rm else "—"
+            # 计时类动作的成绩是秒数：顶组=最长一组，容量位置放总时长
+            if m.timed and m.best_time_s:
+                top = f"{m.best_time_s:.0f}s"
+                vol = f"{m.time_s_total:.0f}s"
             flag = "*" if m.group_source in ("rule", "taxonomy") else " "
             print(f"{m.name[:20]:<22}{m.group:<6}{m.sets_done:>4}"
-                  f"{m.reps_total:>6.0f}{top:>9}{vol:>10}{e:>10}{flag}")
+                  f"{m.reps_total:>6.0f}{top:>9}{vol:>10}{e:>10}{flag}"
+                  f"{m.difficulty or '—':>5}")
         print("─" * 62)
         vol = f"{st.volume_kg:,.0f} kg" if st.volume_kg is not None else "—"
         print(f"合计  {st.sets_done}/{st.sets_planned} 组   总容量 {vol}"
@@ -292,8 +300,9 @@ def cmd_summary(args) -> int:
         groups = "、".join(f"{g} {n:.0f}组" for g, n in
                            sorted(st.groups.items(), key=lambda kv: -kv[1]))
         print(f"部位分布  {groups}")
-        print(f"RPE 覆盖率 {st.rpe_coverage * 100:.0f}%"
-              + ("（没有 RPE 数据，强度相关结论会略过）" if st.rpe_coverage < 0.3 else ""))
+        print(f"强度覆盖率 {st.difficulty_coverage * 100:.0f}%"
+              f"（难度标注）／ RPE {st.rpe_coverage * 100:.0f}%"
+              + ("" if st.has_intensity_signal else "  ← 数据不足，强度相关结论会略过"))
         print("\n* = 部位由动作名推断（训记未返回该字段）")
     return 0
 
