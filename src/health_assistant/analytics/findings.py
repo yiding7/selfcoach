@@ -218,15 +218,35 @@ def evaluate_session(stats: SessionStats, comparisons: list[GroupComparison],
             text=f"计划的 {stats.sets_done} 组全部完成，执行度满分。",
             metrics={"sets": stats.sets_done}))
 
-    # ── RPE 数据质量 ──
-    if stats.sets_done and stats.rpe_coverage < RPE_MIN_COVERAGE:
+    # ── 强度数据质量 ──
+    # 训记的 rpe 字段实际从不填，能拿到的强度信号是动作级的难度标注（简单/正常/困难）。
+    # 两者任一达标就能做强度判断，所以只在都不够时才提。
+    if stats.sets_done and not stats.has_intensity_signal:
         out.append(Finding(
             code="MISSING_RPE", polarity="改进点", subject="本次训练",
-            text=f"这次有 RPE 记录的组占 {stats.rpe_coverage * 100:.0f}%，"
+            text=f"这次有强度标注的动作占 {stats.difficulty_coverage * 100:.0f}%"
+                 f"（RPE 覆盖 {stats.rpe_coverage * 100:.0f}%），"
                  f"数据不够做强度判断，所以本次报告里关于「练得够不够狠」的结论我先不下。"
-                 f"其实只要每个动作的**最后一组**记一个 RPE 就够了，"
-                 f"一次训练多花不到一分钟，但能让下次的重量建议准很多。",
-            metrics={"coverage": stats.rpe_coverage}))
+                 f"训记里给每个动作点一下**难度（简单/正常/困难）**就够了，"
+                 f"一次训练多花不到半分钟，但能让下次的重量建议准很多。",
+            metrics={"coverage": stats.rpe_coverage,
+                     "difficulty_coverage": stats.difficulty_coverage}))
+    elif stats.difficulty_coverage >= 0.50:
+        hard = [m.name for m in stats.movements if m.difficulty == "困难"]
+        easy = [m.name for m in stats.movements if m.difficulty == "简单"]
+        if hard:
+            out.append(Finding(
+                code="RATED_HARD", polarity="信息", subject="本次训练",
+                text=f"你把 {'、'.join(hard[:3])} 标成了「困难」。"
+                     f"这几个下次先保持重量，把次数做扎实再加 —— "
+                     f"标困难的动作连续加重是最容易受伤的路径。",
+                metrics={"hard_count": len(hard)}))
+        if easy:
+            out.append(Finding(
+                code="RATED_EASY", polarity="信息", subject="本次训练",
+                text=f"{'、'.join(easy[:3])} 你标的是「简单」。"
+                     f"如果次数也在区间上限，下次可以直接加重，不用再等一轮。",
+                metrics={"easy_count": len(easy)}))
 
     # ── 时长与密度 ──
     if stats.duration_min and stats.duration_min > 90 and stats.density_kg_per_min:

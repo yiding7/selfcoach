@@ -165,3 +165,42 @@ class TestTrain:
         """忘记停计时器是真实存在的。超过 6 小时的时长不采信。"""
         raw = dict(self.RAW, start=0, end=10 * 3600 * 1000)
         assert normalize_train(raw, datestr="2026-07-06")["duration_s"] is None
+
+
+class TestTimedSetDuration:
+    """训记对计时类动作有两个时长字段。实测 2026-08-06 平板支撑三组：
+    前两组 time=40/41 且 trainedSeconds 相同，第三组 time=0 而 trainedSeconds=42。
+    159 天原始缓存里共 10 组是「只有 trainedSeconds」，且两者都有值时从不冲突。
+    """
+
+    def test_falls_back_to_trained_seconds(self):
+        s = normalize_set({"index": 3, "done": False, "time": 0,
+                           "trainedSeconds": 42, "unit": "kg"})
+        assert s["time_s"] == 42.0
+
+    def test_time_wins_when_both_present(self):
+        s = normalize_set({"index": 1, "done": False, "time": 40,
+                           "trainedSeconds": 40, "unit": "kg"})
+        assert s["time_s"] == 40.0
+
+    def test_no_duration_stays_absent(self):
+        s = normalize_set({"index": 1, "done": True, "reps": "10",
+                           "weight": "60", "unit": "kg"})
+        assert s.get("time_s") is None
+
+    def test_done_flag_is_preserved_verbatim(self):
+        """归一化层不改 done 的含义 —— 计时动作算不算完成是 analytics 层的判断。"""
+        s = normalize_set({"index": 1, "done": False, "trainedSeconds": 42})
+        assert s["done"] is False
+
+
+class TestMovementDifficulty:
+    """动作级难度标签。厂商文档没写，但真实响应里有（159 天里 37 个动作有值）。"""
+
+    def test_difficulty_kept(self):
+        m = normalize_movement({"name": "哈克机深蹲", "difficulty": "hard", "sets": []})
+        assert m["difficulty"] == "hard"
+
+    def test_empty_difficulty_is_none(self):
+        m = normalize_movement({"name": "杠铃深蹲", "difficulty": "", "sets": []})
+        assert m["difficulty"] is None

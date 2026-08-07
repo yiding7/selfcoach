@@ -177,3 +177,88 @@ class TestSessionStats:
                       mk_set(weight_kg=60.0, reps=10)]}]}
         st = session_stats(s, bodyweight_kg=80.0)
         assert st.rpe_coverage == pytest.approx(0.5)
+
+
+class TestTimedMovements:
+    """2026-08-06 平板支撑：训记的 record 类动作**不需要打勾**，done 恒为 false，
+    时长有时只落在 trainedSeconds 里（time=0）。真实数据是 40 / 41 / 42 秒。
+    只认 done 会把三组全判成没做，秒数也跟着丢光。
+    """
+
+    MOVEMENT = {
+        "name": "平板支撑", "raw_type": "腹部", "exetype": "record",
+        "unilateral": False, "sets": [
+            mk_set(done=False, time_s=40.0),
+            mk_set(done=False, time_s=41.0),
+            mk_set(done=False, time_s=42.0),
+        ],
+    }
+
+    def test_timed_sets_count_as_done_without_checkmark(self):
+        ms = movement_stats(self.MOVEMENT, bodyweight_kg=80.0)
+        assert ms.sets_done == 3
+
+    def test_durations_are_kept(self):
+        ms = movement_stats(self.MOVEMENT, bodyweight_kg=80.0)
+        assert ms.timed is True
+        assert ms.best_time_s == pytest.approx(42.0)
+        assert ms.time_s_total == pytest.approx(123.0)
+
+    def test_no_duration_still_undone(self):
+        """没打勾又没时长的组，仍然算没做 —— 不能凭 exetype 一律放行。"""
+        m = dict(self.MOVEMENT, sets=[mk_set(done=False)])
+        assert movement_stats(m, bodyweight_kg=80.0).sets_done == 0
+
+    def test_not_flagged_volume_incomplete(self):
+        """计时动作没有「次数×负荷」意义上的容量，缺的是单位不是数据。
+        标成 incomplete 会让每次练平板支撑都误报一条容量警告。
+        """
+        ms = movement_stats(self.MOVEMENT, bodyweight_kg=80.0)
+        assert ms.volume_incomplete is False
+
+    def test_normal_movement_still_needs_checkmark(self):
+        m = {"name": "杠铃卧推", "raw_type": "胸", "exetype": None,
+             "unilateral": False, "sets": [mk_set(done=False, weight_kg=60.0, reps=10)]}
+        assert movement_stats(m, bodyweight_kg=80.0).sets_done == 0
+
+
+class TestDifficulty:
+    """训记的动作级难度标签（简单/正常/困难）。这是这个 app 里唯一真实可得的
+    强度信号 —— rpe 字段实际从不填。刻意不做 RPE 数值映射。
+    """
+
+    def mk_session(self, *movements):
+        return {"id": "x", "date": "2026-08-05", "source": "xunji", "title": "",
+                "duration_s": 2700, "movements": list(movements)}
+
+    def mk_mv(self, name, difficulty=None):
+        return {"name": name, "raw_type": "腿", "exetype": None, "unilateral": False,
+                "difficulty": difficulty,
+                "sets": [mk_set(weight_kg=60.0, reps=8)]}
+
+    def test_label_is_chinese_not_a_number(self):
+        ms = movement_stats(self.mk_mv("杠铃深蹲", "hard"), bodyweight_kg=80.0)
+        assert ms.difficulty == "困难"
+        assert ms.rpes == []          # 绝不伪装成 RPE
+
+    def test_unknown_label_is_none(self):
+        ms = movement_stats(self.mk_mv("杠铃深蹲", "brutal"), bodyweight_kg=80.0)
+        assert ms.difficulty is None
+
+    def test_coverage_denominator_is_movements_not_sets(self):
+        st = session_stats(self.mk_session(
+            self.mk_mv("杠铃深蹲", "normal"), self.mk_mv("哈克机深蹲")),
+            bodyweight_kg=80.0)
+        assert st.difficulty_coverage == pytest.approx(0.5)
+
+    def test_difficulty_alone_satisfies_intensity_gate(self):
+        """全员标了难度但一个 RPE 都没有 —— 强度结论应该照常给。"""
+        st = session_stats(self.mk_session(
+            self.mk_mv("杠铃深蹲", "normal"), self.mk_mv("哈克机深蹲", "hard")),
+            bodyweight_kg=80.0)
+        assert st.rpe_coverage == 0.0
+        assert st.has_intensity_signal is True
+
+    def test_no_signal_at_all_fails_gate(self):
+        st = session_stats(self.mk_session(self.mk_mv("杠铃深蹲")), bodyweight_kg=80.0)
+        assert st.has_intensity_signal is False

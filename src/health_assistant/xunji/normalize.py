@@ -138,7 +138,10 @@ def normalize_set(raw: dict, *, unit_hint: str | None = None, kind: str = "work"
         "weight_kg": weight,
         "left_weight_kg": left,
         "reps": num(raw.get("reps")),
-        "time_s": num(raw.get("time")) or None,
+        # 计时类动作的时长有两个字段。训记对同一组有时只填 trainedSeconds
+        # 而把 time 留成 0（实测：159 天里 10 组是这种情况，两者都有值时从不冲突）。
+        # 只读 time 会把整个平板支撑的时长丢光。
+        "time_s": num(raw.get("time")) or num(raw.get("trainedSeconds")) or None,
         "self_weight": bool(raw.get("selfWeight")),
         "rpe": num(raw.get("rpe")),          # "" → None，绝不当 0
         "set_type": (raw.get("setType") or "") or None,
