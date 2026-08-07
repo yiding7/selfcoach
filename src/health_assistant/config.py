@@ -22,6 +22,12 @@ KNOWLEDGE_DIR = ROOT / "knowledge"
 REPORTS_DIR = ROOT / "reports"
 SKILLS_DIR = ROOT / "skills"
 
+PROFILE_DIR = ROOT / "profile"
+# 教练工作日志。**刻意放在 profile/ 下**：它是关于这个人的、私密的、不进版本库的。
+# 但它不属于「事实」—— 事实在 data/ knowledge/ 和 profile/ 的其余文件里。
+# 日志只提供线索和近期对话摘要，权威性排在最底下。见 CLAUDE.md 的优先级链。
+JOURNAL_DIR = PROFILE_DIR / "coach-journal"
+
 ENV_PATH = ROOT / ".env"
 
 _ENV_LOADED = False

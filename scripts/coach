@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# 桌面快捷方式的启动逻辑。
+#
+# 桌面上那个 .command 只是三行的壳，真正的东西在这里 ——
+# 想改启动行为改这个文件就够了，不用动桌面上那个。
+#
+# 用法：
+#   scripts/coach            数据新鲜度 + 启动一个**新**的 Claude Code 会话
+#   scripts/coach -c         接着上一次的对话（同一件事没聊完时用）
+#   scripts/coach --resume   列出历史会话让你挑一个
+#   scripts/coach --status   只看新鲜度，不启动 agent（也用来自测）
+#   scripts/coach --shell    不启动 agent，直接给个在项目目录里的 shell
+#
+# 除了 --status / --shell，其余参数一律原样透传给 claude。
+#
+# 为什么默认开新会话：这个项目的事实都在 data/ profile/ knowledge/ 里，
+# 不在对话里。长会话会被压缩、会丢细节，而档案不会。聊出来的重要结论
+# 应该写进 profile/，而不是指望 agent 记着。
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$HERE"
+
+# Finder 双击启动时 PATH 往往不完整，把常见位置补上
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+MODE="${1:-}"
+
+# 终端窗口标题
+printf '\033]0;%s\007' "健康教练"
+
+printf '\n\033[1m健康教练\033[0m  ·  %s\n' "$HERE"
+printf '%s\n\n' "────────────────────────────────────────────────"
+
+# 数据新鲜度：不联网，秒回
+if ! "$HERE/scripts/hc" status 2>&1; then
+  printf '  ⚠️  hc status 没跑起来，跑一下 ./scripts/hc doctor 看看环境\n'
+fi
+
+# 教练日志：也是本地读取，秒回。这里打出来是给**你**看的 ——
+# 上次挂着没闭合的问题，进屋前先扫一眼。
+printf '\n'
+"$HERE/scripts/hc" journal 2>/dev/null || true
+
+printf '\n%s\n' "────────────────────────────────────────────────"
+
+case "$MODE" in
+  --status)
+    exit 0
+    ;;
+  --shell)
+    printf '\n当前目录 %s，可以直接用 ./scripts/hc …\n\n' "$HERE"
+    exec "${SHELL:-/bin/zsh}" -i
+    ;;
+esac
+
+CLAUDE_BIN="$(command -v claude 2>/dev/null || true)"
+if [ -n "$CLAUDE_BIN" ]; then
+  if [ "$#" -gt 0 ]; then
+    printf '\n正在启动 Claude Code（%s），退出后会留在项目目录里…\n\n' "$*"
+  else
+    printf '\n正在启动 Claude Code（新会话），退出后会留在项目目录里…\n'
+    printf '想接上次的对话：退出后跑 ./scripts/coach -c\n\n'
+  fi
+
+  # 把教练日志直接塞进 system prompt。
+  #
+  # 为什么在这里做而不是让 agent 自己跑命令：每次对话开头多一次工具调用，
+  # 就多一次权限确认和一个来回，聊天就不像聊天了。日志是本地读取、毫秒级、
+  # 且**只读无副作用**，完全可以在启动时一次性注入。
+  #
+  # 注入的块带 <coach-journal> 哨兵，agent 看到它就知道不用再读一遍。
+  JOURNAL_BRIEF="$("$HERE/scripts/hc" journal --brief 2>/dev/null || true)"
+  if [ -n "$JOURNAL_BRIEF" ]; then
+    "$CLAUDE_BIN" --append-system-prompt "$JOURNAL_BRIEF" "$@" || true
+  else
+    "$CLAUDE_BIN" "$@" || true
+  fi
+  printf '\n已退出 Claude Code。当前目录 %s，可以直接用 ./scripts/hc …\n\n' "$HERE"
+else
+  printf '\n⚠️  PATH 里没找到 claude 命令，直接给你一个在项目目录里的 shell。\n\n'
+fi
+
+# 不关窗口，留在项目目录继续用 hc
+exec "${SHELL:-/bin/zsh}" -i
