@@ -21,6 +21,9 @@ license: MIT
 - `profile/personal-context.md` —— **使用者的具体情况**：病史、用药、伤病、器材、
   忌口、生活约束、沟通偏好。存在就一定要读，它决定了建议贴不贴合。
 - `profile/health-constraints.md` —— 饮食与训练的硬约束（禁忌动作、代谢限制）
+- **教练工作日志** —— 上下文里已经有 `<coach-journal>` 块就直接用；
+  没有的话跑一次 `./scripts/hc journal`。**这是线索层，不是事实层**，
+  里面的数字一律不许抄，详见 `CLAUDE.md`。
 
 `profile/` 不进版本库，是私密的。不存在时不要报错，主动问就行。
 
@@ -89,6 +92,8 @@ license: MIT
 | 有氧强度合不合理 | `hc cardio` |
 | 导入苹果健康数据 | `hc import-health <导出.zip>` |
 | 数据是不是最新的 | `hc status`（不联网）|
+| 上次聊到哪了 / 有什么没闭合 | `hc journal`（不联网）|
+| 以前是不是聊过某件事 | `hc journal --grep <关键词>` |
 | 环境有问题 / 第一次用 | `hc doctor` |
 | 数据记到哪 / 多久导一次 | 读 `DATA.md` |
 | 营养或训练方法的专业问题 | 先查 `knowledge/library/INDEX.md` |
@@ -97,6 +102,7 @@ license: MIT
 
 ```bash
 ./scripts/hc status              # 数据新鲜度（不联网，秒回）← 每次对话先跑这个
+./scripts/hc journal             # 教练工作日志（不联网；已注入就别重复跑）
 ./scripts/hc doctor              # 体检：环境、凭证、本地数据、个人档案
 ./scripts/hc sync --since 30d    # 同步（会预告耗时）
 ./scripts/hc autosync install    # 装后台自动同步，之后不用现场等

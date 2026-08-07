@@ -654,6 +654,77 @@ def cmd_inject(args) -> int:
     return 0
 
 
+def cmd_journal(args) -> int:
+    """教练工作日志。读操作永远不写盘，所以放进权限白名单是安全的。"""
+    from . import journal
+
+    action = getattr(args, "journal_action", None)
+    today = dt.date.today()
+
+    if action == "add":
+        try:
+            entry_id = journal.add(
+                args.kind, args.topic, args.text,
+                evidence=args.evidence or [],
+                supersedes=args.supersedes,
+            )
+        except ValueError as e:
+            print(f"写不进去：{e}")
+            return 1
+        print(f"已记 [{entry_id}] {args.kind}·{args.topic}  {args.text}")
+        if args.kind == "待确认":
+            print("  这条在闭合前每次对话都会浮出来。"
+                  f"用户拍板后跑 `hc journal confirm {entry_id} --landed <文件#小节>`。")
+        return 0
+
+    if action in ("confirm", "reject"):
+        status = (journal.STATUS_CONFIRMED if action == "confirm"
+                  else journal.STATUS_REJECTED)
+        try:
+            journal.set_status(args.id, status,
+                               landed=getattr(args, "landed", None),
+                               why=getattr(args, "why", None))
+        except ValueError as e:
+            print(f"标不了：{e}")
+            return 1
+        if action == "confirm":
+            print(f"[{args.id}] 已确认，落盘位置 {args.landed}")
+            print("  记得 profile 里的旧结论要降格成历史行，不要删除。")
+        else:
+            print(f"[{args.id}] 已否决" + (f"：{args.why}" if args.why else ""))
+        return 0
+
+    # 以下都是只读视图
+    if args.grep:
+        hits = journal.search(args.grep, today=today)
+        if not hits:
+            print(f"日志里没有匹配「{args.grep}」的条目。")
+            return 0
+        print(f"匹配「{args.grep}」的 {len(hits)} 条（全量检索，不受窗口限制）")
+        print(f"⚠️  {journal.DISCLAIMER}\n")
+        for it in hits:
+            print(journal.fmt_line(it, today, indent="  "))
+        return 0
+
+    if args.since:
+        start = _parse_since(args.since, today)
+        hits = journal.since(start, today=today)
+        print(f"{start.isoformat()} 至今共 {len(hits)} 条")
+        print(f"⚠️  {journal.DISCLAIMER}\n")
+        for it in hits:
+            print(journal.fmt_line(it, today, indent="  "))
+        return 0
+
+    if args.brief:
+        text = journal.render_brief(window_days=args.window, today=today)
+        if text:
+            print(text)
+        return 0
+
+    print(journal.render(window_days=args.window, today=today))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="hc",
@@ -751,6 +822,43 @@ def build_parser() -> argparse.ArgumentParser:
                     help="用 .env 里配的 LLM 适配器自动写叙述（cron 无人值守用；"
                          "在 agent 宿主里不需要）")
     rp.set_defaults(func=cmd_report)
+
+    # journal 模块零依赖、无副作用，可以在这里直接导入，省得把词表抄一遍
+    from . import journal as _jr
+
+    jr = sub.add_parser(
+        "journal", help="教练工作日志（线索层，非事实）",
+        description="教练随手记的笔记。权威性排在优先级链最底下，只提供线索和近期摘要。")
+    jr.add_argument("--window", type=int, default=_jr.WINDOW_DAYS,
+                    help=f"最近多少天（默认 {_jr.WINDOW_DAYS} 天）")
+    jr.add_argument("--brief", action="store_true",
+                    help="紧凑版，给 --append-system-prompt 注入用")
+    jr.add_argument("--grep", metavar="关键词", help="全量检索（聊到旧话题时用）")
+    jr.add_argument("--since", help="某日期至今，支持 2026-07-01 或 30d/12w")
+    jr.set_defaults(func=cmd_journal, journal_action=None)
+
+    jsub = jr.add_subparsers(dest="journal_action")
+
+    ja = jsub.add_parser("add", help="记一条")
+    ja.add_argument("--kind", required=True, choices=list(_jr.KINDS),
+                    help="观察=事实 / 判断=我的推断 / 待确认=需要用户拍板")
+    ja.add_argument("--topic", required=True, choices=list(_jr.TOPICS))
+    ja.add_argument("--text", required=True, help="一句话")
+    ja.add_argument("--evidence", action="append", metavar="来源",
+                    help="数字的出处，如 'hc compare --date 2026-08-05'，可重复")
+    ja.add_argument("--supersedes", metavar="ID", help="推翻之前的哪一条（旧条目不会被删）")
+    ja.set_defaults(func=cmd_journal, journal_action="add")
+
+    jc = jsub.add_parser("confirm", help="用户拍板了，标为已确认")
+    jc.add_argument("id")
+    jc.add_argument("--landed", required=True, metavar="文件#小节",
+                    help="落到 profile 的哪里，如 profile/personal-context.md#3-目标")
+    jc.set_defaults(func=cmd_journal, journal_action="confirm")
+
+    jx = jsub.add_parser("reject", help="用户否了，标为已否决")
+    jx.add_argument("id")
+    jx.add_argument("--why", help="为什么否了")
+    jx.set_defaults(func=cmd_journal, journal_action="reject")
 
     ij = sub.add_parser("inject", help="把模型写的叙述注入报告")
     ij.add_argument("name", help="报告名，比如 2026-W30")
