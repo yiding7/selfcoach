@@ -141,6 +141,13 @@ def check(*, verbose: bool = False) -> int:
         lines.append("     照着 profile/personal-context.example.md 填一份，"
                      "助手的建议会贴合得多")
 
+    # ── 需要用户自己填的部分 ──
+    # 单独一节，因为这些是「工具帮不了你、只能你自己给」的东西。
+    # 它们散在几个文件里各有道理，但散落本身就是个问题，所以这里集中体检一次。
+    lines.append(f"\n{'该你填的（hc setup 可一次填完）':─<12}")
+    from . import setup as setup_mod
+    lines += setup_mod.render_checklist()
+
     lines.append("")
     lines.append("=" * 52)
     if fatal:

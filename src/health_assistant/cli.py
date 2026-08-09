@@ -725,6 +725,176 @@ def cmd_journal(args) -> int:
     return 0
 
 
+def cmd_dice(args) -> int:
+    """食物骰子。约束在先、随机在后 —— 摊开筛掉了什么，比给一个答案重要。"""
+    from . import dice
+
+    action = getattr(args, "dice_action", None)
+    now = dt.datetime.now()
+    today = dt.date.fromisoformat(args.date) if getattr(args, "date", None) else now.date()
+
+    if action == "list":
+        pool, issues = dice.load_pool_with_issues()
+        walls = dice.load_avoid()
+        avoid = walls.all_terms()
+        blocks = dice.load_medical_blocks()
+        if walls.warn:
+            print(f"⚠️  {walls.warn}\n")
+        for issue in issues:
+            print(f"⚠️  候选池：{issue}")
+        shown = [d for d in pool
+                 if (not args.tier or d["tier"] == args.tier)
+                 and (not args.slot or args.slot in d["slots"])
+                 and (not args.scene or args.scene in d["scenes"])
+                 and (not args.cuisine or d["cuisine"] == args.cuisine)
+                 and (not args.effort or d["effort"] == args.effort)]
+        print(f"候选池 {len(pool)} 道，符合条件 {len(shown)} 道")
+        if avoid:
+            print(f"  忌口：{'、'.join(avoid)}")
+        if blocks:
+            print(f"  医学禁忌：{'、'.join(blocks)}")
+        print()
+        for d in sorted(shown, key=lambda x: (x["cuisine"], x["name"])):
+            why = ""
+            hit = dice.blocked_by(d, walls)
+            if hit:
+                why = f" ⛔{hit[1]}"
+            elif any(f in blocks for f in d["flags"]):
+                names = [f for f in d["flags"] if f in blocks]
+                why = f" ⛔医学禁忌（{'、'.join(names)}）"
+            local = " *" if d["source"] == "local" else ""
+            fast = "⚡" if d["effort"] == "快手" else "　"
+            print(f"  {fast}{dice.TIER_LABEL[d['tier']]} 嘌呤{d['purine']:<2} 蛋白{d['protein']}"
+                  f"  {d['cuisine']:<5}  {d['name']}{local}{why}")
+        print(f"\n  ⚡ = 快手菜   * = 你自己加的（{dice.LOCAL_POOL_PATH.name}）")
+        print(f"  菜系：{'、'.join(dice.cuisines())}")
+        return 0
+
+    if action == "add":
+        try:
+            dice.add_dish({
+                "name": args.name, "tier": args.tier, "purine": args.purine,
+                "protein": args.protein, "scenes": args.scene or None,
+                "slots": args.slot or None, "contains": args.contains or [],
+                "cuisine": args.cuisine, "effort": args.effort,
+                "flags": args.flag or [],
+                "fix": args.fix or [], "note": args.note or "",
+            })
+        except ValueError as e:
+            print(f"加不进去：{e}")
+            return 1
+        print(f"已加进个人池：{args.name}（{args.tier}灯 · 嘌呤{args.purine} · 蛋白{args.protein}）")
+        print(f"  {dice.LOCAL_POOL_PATH}")
+        return 0
+
+    if action == "log":
+        rolls = dice.settled_rolls()
+        start = _parse_since(args.since, today) if args.since else today - dt.timedelta(days=14)
+        hits = [r for r in rolls if r.get("date", "") >= start.isoformat()]
+        if not hits:
+            print(f"{start.isoformat()} 至今还没摇过。")
+            return 0
+        print(f"{start.isoformat()} 至今摇过 {len(hits)} 次"
+              "（同一餐重摇过的以最后一次为准，旧的仍在 data/dice.jsonl 里）")
+        for r in hits:
+            mark = " ⚠️破戒" if r.get("breakable") else ""
+            print(f"  {r['date']} {r['slot']}  {dice.TIER_LABEL.get(r.get('tier'), '?')}"
+                  f"  {r['dish']}{mark}")
+        month = today.strftime("%Y-%m")
+        used = dice.red_used(month, rolls)
+        phase, defaulted = dice.load_phase()
+        print(f"\n  {month} 破戒额度 {len(used)}/{dice.red_quota(phase)}"
+              f"（阶段：{phase}{' —— 默认值，没在 profile 里设' if defaulted else ''}）")
+        return 0
+
+    # 默认：摇一次
+    slot = args.slot or dice.default_slot(now)
+
+    existing = dice.current_roll(today.isoformat(), slot)
+    if existing and not args.again:
+        from . import nutrition
+        pool = {d["name"]: d for d in dice.load_pool()}
+        d = pool.get(existing["dish"])
+        if d is None:  # 池子里删掉了，用日志里存的那份档位凑合显示
+            d = {"name": existing["dish"], "tier": existing.get("tier", "黄"),
+                 "purine": existing.get("purine", "中"),
+                 "protein": existing.get("protein", "中"),
+                 "cuisine": existing.get("cuisine", "其他"), "effort": "中等",
+                 "contains": [], "flags": [], "fix": [], "note": ""}
+
+        # 回放**必须重跑两堵硬墙**。约束是会变的：早上摇完，中午拿到复查结果
+        # 把「内脏为主」加进医学禁忌 —— 这时候原样端出早上那道菜是不能接受的。
+        walls = dice.load_avoid()
+        blocks = dice.load_medical_blocks()
+        hit = dice.blocked_by(d, walls)
+        hit_flags = [f for f in d.get("flags", []) if f in blocks]
+        if hit or hit_flags:
+            why = hit[1] if hit else f"医学禁忌（{'、'.join(hit_flags)}）"
+            print(f"⚠️  今天这一餐原本摇到「{d['name']}」，但它现在撞上了{why}。")
+            print("    约束是在那次之后才生效的，所以这条结论作废，重摇一次：\n")
+            args.again = True   # 落到下面的正常摇一次
+        else:
+            phase, defaulted = dice.load_phase()
+            quota = dice.red_quota(phase)
+            # 这一餐已经记在账上了，算剩余额度时要把它排除，否则会误报「已超额」
+            used = dice.red_used(today.strftime("%Y-%m"),
+                                 dice.settled_rolls(exclude=(existing["date"], slot)))
+            print(dice.render({
+                "date": existing["date"], "slot": existing["slot"],
+                "scene": existing.get("scene"), "cuisine": None, "effort": None,
+                "seed": existing.get("seed"), "targets": nutrition.targets(today),
+                "pool_total": len(pool), "candidates": 0,
+                "dropped": {}, "survivors": {},
+                "phase": phase, "phase_defaulted": defaulted, "phase_why": "",
+                "quota": quota, "quota_left": max(0, quota - len(used)),
+                "quota_used": used, "yellow_this_week": 0,
+                "avoid": walls.all_terms(), "allergy": walls.allergy,
+                "blocks": blocks, "likes": [], "warn": walls.warn,
+                "pool_issues": [],
+                "dish": d, "alternates": [],
+            }, replayed=True))
+            return 0
+
+    result = dice.roll(slot=slot, scene=args.scene, cuisine=args.cuisine,
+                       effort=args.effort, today=today, seed=args.seed,
+                       allow_red=args.allow_red, min_protein=args.min_protein,
+                       again=args.again)
+    print(dice.render(result))
+    if result["dish"] and not args.dry_run:
+        dice.commit(result)
+    return 0 if result["dish"] else 1
+
+
+def cmd_setup(args) -> int:
+    """一次问完所有需要用户自己填的东西，写回各自的真相源。"""
+    from . import setup as setup_mod
+
+    if args.show:
+        print("需要你自己提供的数据 —— 完整清单")
+        print("=" * 60)
+        for label, where, how, why in setup_mod.DATA_MAP:
+            print(f"\n{label}")
+            print(f"  位置    {where}")
+            print(f"  怎么弄  {how}")
+            print(f"  用来做  {why}")
+        return 0
+    try:
+        return setup_mod.run()
+    except (KeyboardInterrupt, EOFError):
+        print("\n已取消，没有写盘。")
+        return 130
+
+
+def cmd_targets(args) -> int:
+    """每日目标摄入量。数字全部算出来，且必须说明是怎么算的。"""
+    from . import nutrition
+
+    today = dt.date.fromisoformat(args.date) if args.date else dt.date.today()
+    t = nutrition.targets(today)
+    print(nutrition.render_targets(t))
+    return 0 if t.get("ok") else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="hc",
@@ -739,6 +909,11 @@ def build_parser() -> argparse.ArgumentParser:
   hc rebuild                   改了解析逻辑后离线重算，零网络请求
 """)
     sub = p.add_subparsers(dest="command", required=True)
+
+    su = sub.add_parser("setup", help="引导式填写个人数据（一次问完，写回各自的真相源）")
+    su.add_argument("--show", action="store_true",
+                    help="只列出「什么数据填在哪」，不进入问答")
+    su.set_defaults(func=cmd_setup)
 
     d = sub.add_parser("doctor", help="环境体检")
     d.add_argument("-v", "--verbose", action="store_true", help="显示脱敏后的凭证片段")
@@ -859,6 +1034,66 @@ def build_parser() -> argparse.ArgumentParser:
     jx.add_argument("id")
     jx.add_argument("--why", help="为什么否了")
     jx.set_defaults(func=cmd_journal, journal_action="reject")
+
+    # dice 模块零依赖、只读路径无副作用，直接导入词表，省得抄一遍
+    from . import dice as _dc
+
+    dc = sub.add_parser(
+        "dice", help="食物骰子：今天吃什么",
+        description="约束在先、随机在后。忌口/嘌呤/红黄绿灯先筛，再按蛋白密度加权摇。")
+    dc.add_argument("--slot", choices=list(_dc.SLOTS), help="餐次，默认按当前时间判断")
+    dc.add_argument("--scene", choices=list(_dc.SCENES), help="外卖 / 店里 / 家里 / 聚餐")
+    dc.add_argument("--cuisine", help="限定菜系，可选值见 hc dice list 末尾")
+    dc.add_argument("--effort", choices=list(_dc.EFFORTS),
+                    help="快手 / 中等 / 费事。自己做饭时用")
+    dc.add_argument("--again", action="store_true",
+                    help="重摇这一餐（旧的作废，但仍留在日志里）")
+    dc.add_argument("--allow-red", action="store_true",
+                    help="把红灯和高嘌呤放回池子，摇到就消耗本月破戒额度")
+    dc.add_argument("--min-protein", choices=list(_dc.PROTEINS),
+                    help="只摇蛋白密度不低于这一档的（练后 / 蛋白落后时用）")
+    dc.add_argument("--seed", type=int,
+                    help="固定随机种子。只在池子和历史都没变时才给出同一个结果 —— "
+                         "想查某天摇到什么用 hc dice log")
+    dc.add_argument("--date", help="按哪天算，默认今天")
+    dc.add_argument("--dry-run", action="store_true", help="只看结果，不写日志、不消耗额度")
+    dc.set_defaults(func=cmd_dice, dice_action=None)
+
+    dsub = dc.add_subparsers(dest="dice_action")
+
+    dl = dsub.add_parser("list", help="看池子里都有什么")
+    dl.add_argument("--tier", choices=list(_dc.TIERS))
+    dl.add_argument("--slot", choices=list(_dc.SLOTS))
+    dl.add_argument("--scene", choices=list(_dc.SCENES))
+    dl.add_argument("--cuisine")
+    dl.add_argument("--effort", choices=list(_dc.EFFORTS))
+    dl.set_defaults(func=cmd_dice, dice_action="list")
+
+    da = dsub.add_parser("add", help="往个人池加一道菜（同名覆盖通用池）")
+    da.add_argument("--name", required=True)
+    da.add_argument("--tier", required=True, choices=list(_dc.TIERS))
+    da.add_argument("--purine", required=True, choices=list(_dc.PURINES),
+                    help="分档见 knowledge/purine-reference.json，别凭印象填")
+    da.add_argument("--protein", required=True, choices=list(_dc.PROTEINS))
+    da.add_argument("--cuisine", help="中餐 / 意大利 / 墨西哥 ...")
+    da.add_argument("--effort", choices=list(_dc.EFFORTS), default="中等")
+    da.add_argument("--scene", action="append", choices=list(_dc.SCENES), help="可重复")
+    da.add_argument("--slot", action="append", choices=list(_dc.SLOTS), help="可重复")
+    da.add_argument("--contains", action="append", metavar="食材", help="忌口过滤用，可重复")
+    da.add_argument("--flag", action="append", choices=list(_dc.FLAGS),
+                    help="中性事实标签，医学禁忌层据此拦截。可重复")
+    da.add_argument("--fix", action="append", metavar="怎么点", help="可重复")
+    da.add_argument("--note", help="为什么是这一档，一句话")
+    da.set_defaults(func=cmd_dice, dice_action="add")
+
+    dg = dsub.add_parser("log", help="最近摇过什么 + 本月破戒额度")
+    dg.add_argument("--since", help="默认最近 14 天")
+    dg.set_defaults(func=cmd_dice, dice_action="log")
+
+    tg = sub.add_parser("targets", help="每日目标摄入量（热量 / 蛋白 / 脂肪 / 碳水）",
+                        description="Mifflin-St Jeor + 由实测步数和训练频率推的活动系数 + 阶段调整。")
+    tg.add_argument("--date", help="按哪天算，默认今天")
+    tg.set_defaults(func=cmd_targets)
 
     ij = sub.add_parser("inject", help="把模型写的叙述注入报告")
     ij.add_argument("name", help="报告名，比如 2026-W30")
