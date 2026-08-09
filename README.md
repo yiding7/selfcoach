@@ -12,6 +12,8 @@
 
 - [它和别的健身工具有什么不同](#它和别的健身工具有什么不同)
 - [快速开始](#快速开始)
+- [**功能总览**](#功能总览) ← 一张表看完所有功能
+- [**你要自己填什么**](#你要自己填什么) ← 数据填在哪，一次说清
 - [**怎么和助手对话**](#怎么和助手对话) ← 日常用的就是这一节
 - [对比是怎么做的](#对比是怎么做的)（核心机制）
 - [报表](#报表)
@@ -53,27 +55,107 @@ git clone git@github.com:yiding7/selfcoach.git
 cd selfcoach
 ./install.sh              # 建目录、把 skills 链到 agent 宿主。不下载任何东西
 cp .env.example .env      # 有训记就填 key；没有就跳过
-./scripts/hc doctor       # 体检：环境、凭证、本地数据、个人档案
-./scripts/hc sync --since 30d    # 同步（训练接口 30s/天限频，会预告耗时）
+
+./scripts/hc setup        # ① 引导式填个人数据（性别/身高/阶段/忌口/禁忌/偏好）
+./scripts/hc sync --since 30d   # ② 同步（训练接口 30s/天限频，会预告耗时）
+./scripts/hc doctor       # ③ 体检：环境、凭证、本地数据、还缺什么
+./scripts/hc autosync install   # ④ 装后台同步，之后数据自己保持新鲜
 ```
 
-填一份个人档案，助手的建议会贴合得多：
+再填一份个人档案，助手的建议会贴合得多：
 
 ```bash
 cp profile/personal-context.example.md profile/personal-context.md
-# 用编辑器填写：病史、用药、伤病、器材、忌口、作息、沟通偏好
+# 用编辑器填写：病史、用药、伤病、器材、作息、沟通偏好
+# 也可以直接跟助手说，它来写
 ```
 
 体检报告直接丢进 `profile/medical/`，文件名带上日期（比如 `2026-04-体检.pdf`），
 助手会读取并和历史报告逐项对比。
 
-`profile/` 整个目录不进版本库，放心写。
+`profile/` 和 `data/` 整个目录不进版本库，放心写。
 
-装上后台自动同步，之后数据自己保持新鲜、对话时不用等：
+---
+
+## 功能总览
+
+每一行：**你说什么** → **它跑什么** → **数据从哪来**。
+命令都能自己跑，但日常用法是直接说人话，助手替你跑。
+
+### 训练
+
+| 功能 | 你可以这么说 | 命令 | 数据来源 |
+|---|---|---|---|
+| 单次训练分析 | 「今天练得怎么样」 | `hc summary --date 2026-08-05` | `data/training/` |
+| 和上次同部位对比 | 「这次比上次进步了吗」 | `hc compare [--group 胸]` | 同上 |
+| 下次练什么、上多重 | 「下次练背怎么安排」 | `hc next 背` | 同上 + `knowledge/` 规则 |
+| 手记训练 | 「今天卧推 40kg 做了 8/8/7」 | `hc log` | 写入 `data/training/` |
+| 看历史 | 「最近一个月练了几次」 | `hc sessions --since 30d` | 同上 |
+| 动作没认出来 | 「有哪些动作没归类」 | `hc classify --unknown-only` | `knowledge/movement-taxonomy.json` |
+
+### 饮食
+
+| 功能 | 你可以这么说 | 命令 | 数据来源 |
+|---|---|---|---|
+| **今天吃什么** | 「不知道吃啥」「换一个」 | `hc dice` | `knowledge/dish-pool.json` + 你的约束 |
+| **每日目标摄入量** | 「我一天该吃多少」 | `hc targets` | 身高体重年龄 + 实测步数 + 阶段 |
+| 这个能吃吗 | 「火锅能吃吗」 | 助手读红黄绿灯 | `profile/food-traffic-light.md` |
+| 蛋白够不够 | 「我蛋白吃够了吗」 | `hc targets` 对照 | 同上 |
+| 记一顿饭 | 「午饭吃了鸡胸 150g」 | 助手写入 | `data/meals/` |
+| 加一道自己常吃的菜 | 「楼下那家牛肉面肉给得多」 | `hc dice add` | `profile/dish-pool.local.json` |
+
+### 身体与健康
+
+| 功能 | 你可以这么说 | 命令 | 数据来源 |
+|---|---|---|---|
+| 体重趋势 | 「我最近体重怎么样」 | `hc status` | `data/body/`（永远看 7 日均线）|
+| 记围度 | 「今天腰围 93.5」 | 助手写入 | `data/body/`，字段 `weist` |
+| 有氧强度 | 「爬楼梯强度合适吗」 | `hc cardio` | Apple Watch → 训记 |
+| 体检报告解析 | 「解析一下新报告，和上次逐项对比」 | 助手读 PDF | `profile/medical/` |
+| 数据新鲜度 | 「数据同步了吗」 | `hc status` | 不联网，秒回 |
+
+### 报表与运维
+
+| 功能 | 你可以这么说 | 命令 | 说明 |
+|---|---|---|---|
+| 周报/月报/年报 | 「出一份这周的报告」 | `hc report weekly` | 自包含 HTML，断网可看 |
+| 全面体检 | 「检查一下配置」 | `hc doctor` | 环境 + 凭证 + 数据 + 还缺什么 |
+| 填个人数据 | — | `hc setup` | 一次问完，写回各自的真相源 |
+| 导入苹果健康 | 「导一下健康数据」 | `hc import-health <导出.zip>` | 每月一次 |
+| 改了解析逻辑要重算 | — | `hc rebuild` | 离线重算，**不要重新 sync** |
+
+---
+
+## 你要自己填什么
+
+工具能自动拿到的都自动拿了。**下面这些只能你给** ——
+它们散在几个文件里各有道理（机器读的进 json，人读的进 md，原件进目录），
+但没人记得住五个位置，所以：
 
 ```bash
-hc autosync install
+./scripts/hc setup          # 引导式一次问完
+./scripts/hc setup --show   # 只想看「什么填在哪」，不进问答
+./scripts/hc doctor         # 体检时会列出还缺什么
 ```
+
+| 要填什么 | 真相源 | 怎么填 | 用来做什么 |
+|---|---|---|---|
+| 性别 / 出生年 / 身高 | `data/profile.json` | `hc setup` | 算基础代谢、心率区间 |
+| 饮食阶段（减脂/维持/增肌）| `data/profile.json → diet.phase` | `hc setup` | 目标热量、破戒额度、灯的权重 |
+| **忌口** | `profile/health-constraints.md` 的「## 忌口」→ `不吃：` | `hc setup` | 按配比占比拦（≥10%），微量配料放行 |
+| **过敏** | 同上 → `过敏：` | `hc setup` | **零容忍**，微量也拦 |
+| **医学禁忌**（异常指标推的）| `data/profile.json → diet.medical_blocks` | `hc setup` | 第二堵硬墙，**指标恢复要删** |
+| 爱吃 / 不爱吃 | `data/profile.json → diet.likes` | `hc setup` | 只调概率，不过滤 |
+| 体重 / 体脂 / 围度 | `data/body/YYYY.jsonl` | 自动同步，或跟助手说 | 目标摄入量按 7 日均值算 |
+| 步数 / 睡眠 / 饮酒 | `data/apple-health/` | `hc import-health` 每月一次 | 活动系数从步数推 |
+| 体检报告原件 | `profile/medical/`（文件名带日期）| 拷进去，说一句 | 助手解析并跨次对比 |
+| 病史 / 用药 / 目标 / 沟通偏好 | `profile/personal-context.md` | 跟助手说，它来写 | 叙述性内容 |
+| 个人化红黄绿灯 | `profile/food-traffic-light.md` | 跟助手说 | 饮食判断的框架 |
+| 自己常吃的菜 | `profile/dish-pool.local.json` | `hc dice add` | 同名覆盖通用池 |
+
+> **一条原则：每个值只有一个真相源。** 散是可以的，重是不行的 ——
+> 同一个数字出现在两个文件里，迟早有一份是旧的。
+> 所以散文文件里**引用**数值，不复制数值；`hc doctor` 会检查两边冲突并报出来。
 
 ---
 
@@ -126,6 +208,129 @@ hc next 背
 结合你自己填写的体检背景与健康约束给判断。
 
 **它不会要求你记录每餐热量** —— 走的是「原则 + 快速判断」路线。
+
+### 今天吃什么 —— 食物骰子
+
+> 不知道吃啥 / 帮我选一个 / 换一个
+
+```bash
+hc dice                      # 按当前时间判断餐次，直接给一个答案
+hc dice --scene 外卖          # 限定场景
+hc dice --cuisine 意大利      # 换个菜系
+hc dice --scene 家里 --effort 快手   # 自己做，只要 15 分钟能上桌的
+hc dice --min-protein 高      # 练完那顿 / 蛋白落后时
+hc dice --again              # 不满意，重摇
+```
+
+```
+🎲  2026-08-08 午饭 · 外卖
+
+  牛肉面
+  黄灯 · 嘌呤中 · 蛋白中 · 中餐
+  肉本身是中档，喝汤才升档。配比不对，不是食材不对
+
+  怎么点
+    · 面减半，肉要双份
+    · 汤别喝 —— 嘌呤都煮进汤里了
+    · 蛋白密度只有「中」，这顿之外补一份（蛋 / 乳清 / 无糖酸奶）
+
+  备选   全麦三明治（鸡胸 + 生菜） / 水煮鸡胸 + 西兰花 + 糙米
+  换一个 hc dice --again --slot 午 --scene 外卖
+
+  筛选链  池子 135 道
+    ├ 场景      午 外卖                          -78 → 57
+    ├ 忌口      青椒 茄子 海带 木耳               -5 → 52
+    ├ 医学禁忌  内脏为主 高嘌呤海产 浓肉汤为主 高果糖     → 52
+    ├ 目标层    维持 · 额度 2/2                      → 52
+    ├ 偏好层    牛肉面 卤肉饭 水煮鱼 …9 项             → 52
+    └ 近期重复  14 天内摇过的降权                     → 52
+```
+
+每 100 g 的营养成分和今日目标一起给：
+
+```
+  每 100 g  189 kcal · 蛋白 12.0 g · 脂肪 14.8 g · 碳水 2.1 g   蛋白供能 25%
+  今日目标  2382 kcal · 蛋白 160 g · 脂肪 64 g · 碳水 293 g   （减脂期 · 80.25 kg）
+```
+
+菜品的每 100 g 是**算出来的**，不是手写的：`knowledge/dish-composition.json`
+存配比（这道菜由哪些食材按什么比例组成），乘上
+`knowledge/nutrition-reference.json` 的食材值（USDA FoodData Central，熟重口径）。
+这样发现某个食材值错了能一次性全部修正，而不是挨个改 135 个数字。
+
+**刻意不替你算「这顿吃了多少」** —— 那需要知道份量，而份量是这里唯一
+完全无从得知的变量。给每 100 g 和今日目标，你自己对着看，比编一个份量再乘出来诚实。
+
+**它不是随机的。** 五层筛选跑完才摇，顺序不能换 —— 越靠前越硬：
+
+| 层 | 管什么 | 硬度 | 配在哪 |
+|---|---|---|---|
+| 0 场景 | 这一餐、这个场合能吃到什么 | 硬 | 命令行参数 |
+| 1 忌口 / 过敏 | 忌口按**配比占比**拦（≥10%）；**过敏零容忍**，微量也拦 | 硬，永不放行 | `health-constraints.md` 的「## 忌口」 |
+| 2 医学禁忌 | 由**实际异常指标**推出的完全不能吃 | 硬，指标恢复才解除 | `profile.json` 的 `diet.medical_blocks` |
+| 3 目标层 | 阶段（减脂/维持/增肌）决定破戒额度和灯的权重 | 软，有额度 | `profile.json` 的 `diet.phase` |
+| 4 偏好层 | 爱吃的加权、不爱吃的降权 | 软，只调概率 | `profile.json` 的 `diet.likes` |
+| 5 加权摇 | 蛋白密度、灯、嘌呤、最近摇过 | 概率 | 内置权重表 |
+
+第 1 层和第 2 层**刻意分开**：忌口是偏好，永远不变；医学禁忌是指标推出来的，
+指标恢复就该解除。合并等于让一个临时状态变成永久规则。
+
+忌口的匹配看**三样**：菜名、池子里显式标的 `contains`、以及
+`dish-composition.json` 里的真实配比。最后一条是关键 —— 池子是公开的、
+不区分用户的，只靠前两样这堵墙大部分时候形同虚设。
+
+按占比拦是因为菜品池公开：几乎每道复合菜都会蹭到某个人的忌口。
+西班牙海鲜饭里 8% 的彩椒不该让整道菜出局，回锅肉里 25% 的青椒该。
+**过敏不走这个阈值** —— 那是医学事实，微量也可能出事。
+
+三件值得知道的事：
+
+- **同一餐当天再跑会回放上次结果，不重摇。** 决策疲劳的解药是「已经定了」。
+  想换用 `--again`，旧记录仍留在日志里。
+- **破戒额度跟着阶段走**，不是写死的：减脂 1 次/月、维持 2 次、增肌 4 次。
+  额度是自己给自己定的上限，超了只陈述不说教 —— 一个永远不摇火锅的骰子没人会用第二周。
+- **嘌呤分档来自 USDA/ODS 实测数据**（`knowledge/purine-reference.json`），
+  不是凭印象。几个反直觉的结论：鸡胸和牛肉基本一个量级；豆腐是低嘌呤；
+  啤酒的嘌呤其实很低（它伤尿酸靠的是酒精抑制排泄）。
+
+池子不够用就往里加，写进 `profile/dish-pool.local.json`，同名覆盖通用池：
+
+```bash
+hc dice list --cuisine 日料        # 先看看有什么
+hc dice add --name 楼下的牛肉面 --tier 绿 --purine 中 --protein 高 \
+    --scene 店里 --slot 午 --fix "肉给得多，不用加"
+```
+
+### 我一天该吃多少
+
+> 我一天该吃多少 / 蛋白够不够
+
+```bash
+hc targets
+```
+
+```
+每日目标摄入量  2026-08-09 · 减脂期
+
+  热量    2382 kcal（维持约 2907，缺口 525）
+  蛋白    160 g   （2.0 g/kg）
+  脂肪    64 g
+  碳水    293 g   （吃剩下的）
+
+  怎么来的
+    体重    80.25 kg（最近 7 天 5 条读数的均值）
+    基础代谢 1755 kcal —— Mifflin-St Jeor（男 33 岁 178 cm）
+    活动系数 ×1.655（由数据推算）
+             日均 12,909 步 → 高活动；力量训练 3.5 次/周 → +0.10
+```
+
+**活动系数是算出来的，不是让你选的。** 「久坐 / 轻度 / 中度 / 高度」四选一
+是所有热量计算器的通病 —— 没人知道自己算哪一档，选错一档就是 ±15%。
+这里从已经在采集的数据推：日均步数（苹果健康）+ 每周训练次数（训练记录）。
+想手动定死就填 `data/profile.json` 的 `diet.activity_factor`。
+
+误差要说清楚：Mifflin-St Jeor 对 82% 的健康成年人在 ±10% 以内。
+**把它当起点不是终点** —— 体重两周没动再调，别按单日读数改。
 
 ### 问身体数据
 
@@ -352,26 +557,72 @@ hc cardio --window 7
 
 ## 命令一览
 
+**配置与体检**
+
 ```bash
+hc setup                       # 引导式填个人数据（一次问完）
+  --show                       # 只列「什么填在哪」，不进问答
+hc doctor [-v]                 # 环境 + 凭证 + 本地数据 + 还缺什么
 hc status                      # 数据新鲜度（不联网，秒回）
-hc doctor                      # 环境体检
-hc autosync install|uninstall|log   # 后台自动同步
+```
+
+**同步与导入**
+
+```bash
 hc sync [train|body|food]      # 从训记同步
   --since 30d / --until DATE   # 时间范围
   --budget-minutes 20          # 限时分批，适合 cron 补历史
-  --force                      # 忽略缓存强制重抓
-hc rebuild                     # 用原始缓存离线重算，零网络
+  --force                      # 忽略缓存强制重抓（⚠️ 30s/天限频，慎用）
+hc autosync install|uninstall|status|log   # 后台自动同步
+hc import-health <导出.zip>     # 导入苹果健康（每月一次）
+  --dry-run                    # 先看解析结果
+hc rebuild                     # 用原始缓存离线重算，零网络请求
+```
+
+**训练**
+
+```bash
 hc log                         # 手记训练（--dry-run 先看解析结果）
 hc sessions --since 30d        # 列出本地训练
 hc summary --date 2026-07-30   # 单次训练详细指标
 hc compare [--date] [--group]  # 四视角对比
 hc next 背                      # 下次训练建议
-hc report weekly|monthly|yearly [--open]
-hc inject <报告名> --slot opening
 hc classify [--unknown-only]   # 查看/教会动作的肌群归属
   --learn '动作名=部位'
 hc cardio [--window 7]         # 有氧与心率区间分析
-hc import-health <导出.zip>     # 导入苹果健康
+```
+
+**饮食**
+
+```bash
+hc targets [--date]            # 每日目标摄入量（热量/蛋白/脂肪/碳水）
+hc dice                        # 食物骰子：今天吃什么
+  --slot 早|午|晚|加餐          # 默认按当前时间判断
+  --scene 外卖|店里|家里|聚餐
+  --cuisine 意大利              # 限定菜系，取值见 hc dice list 末尾
+  --effort 快手|中等|费事        # 自己做饭时用
+  --min-protein 高             # 蛋白落后 / 练后用
+  --again                      # 重摇这一餐（旧的作废，日志里仍保留）
+  --allow-red                  # 放开红灯和高嘌呤，消耗本月破戒额度
+  --dry-run                    # 只看结果，不写日志、不消耗额度
+hc dice list [--cuisine|--tier|--effort]   # 看池子
+hc dice add --name … --tier … --purine … --protein …   # 加一道菜
+hc dice log [--since]          # 最近摇过什么 + 本月破戒额度
+```
+
+**报表**
+
+```bash
+hc report weekly|monthly|yearly [--open]
+hc inject <报告名> --slot opening|training|body|nutrition|closing
+```
+
+**日志（助手用，你一般不用跑）**
+
+```bash
+hc journal [--grep 关键词] [--since 30d] [--brief]
+hc journal add --kind 观察|判断|待确认 --topic … --text …
+hc journal confirm <ID> --landed <文件#小节>
 ```
 
 ---
