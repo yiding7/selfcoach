@@ -90,13 +90,25 @@
 
 | 字段 | 说明 |
 |---|---|
-| `type` | `weight` 体重／`bodyfat` 体脂率／**`weist` 腰围**／`bot` 臀围／`lean_mass` 去脂体重 |
-| `source` | `apple_health` / `xunji` / `medical_report` / `manual` |
+| `type` | 见下表 |
+| `source` | `apple_health` / `xunji` / `medical_report` / `self` 自测 / `partner` 家人代测 / `tailor` 定制店 / `manual` |
 | `id` | 建议 `来源:type:日期`，例如 `manual:weist:2026-08-11` |
 | `unit` | `kg` / `%` / `cm` |
 
-> ⚠️ **腰围的字段名是 `weist`**，训记的历史拼写。不要"改正"成 `waist`，
-> 改了写回训记时会对不上字段。
+**`type` 取值**
+
+| 类别 | 取值 |
+|---|---|
+| 体成分 | `weight` 体重／`bodyfat` 体脂率／`lean_mass` 去脂体重／`bmi` |
+| 围度（cm）| **`weist` 腰围**／`bot` 臀围／`neck` 颈围／`chest` 胸围／`hip` 胯围／`torso_narrowest` 上身最窄处／`upper_arm` 上臂围／`wrist` 手腕围／`thigh` 大腿围／`knee` 膝围／`calf` 小腿围／`head` 头围 |
+
+> ⚠️ **腰围是 `weist`、臀围是 `bot`** —— 训记的历史拼写。不要"改正"成 `waist` /
+> `hip`（`hip` 已经被胯围占用了），改了写回训记时会对不上字段。
+
+> **`source` 是参考字段，不强制填。** 但填了的话：
+> **不同 `source` 的围度读数不要放进同一条趋势线逐点比较** ——
+> 换测量者相当于换了把尺，能差 1–3 cm。缺 `source` 时按「来源不明」处理，
+> 同样别拿去和自测值逐点比。测量方法见 `knowledge/measurement-protocol.md`。
 
 ### 苹果健康其他指标 `data/apple-health/metrics.jsonl`
 
