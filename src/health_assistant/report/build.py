@@ -32,8 +32,10 @@ NARRATIVE_SLOTS = ["opening", "training", "body", "nutrition", "closing"]
 
 
 def week_bounds(anchor: dt.date) -> tuple[dt.date, dt.date]:
-    start = anchor - dt.timedelta(days=anchor.weekday())
-    return start, start + dt.timedelta(days=6)
+    # 周起始日是全局配置（周一/周日），真相源在 plan.week_start_of。
+    # 不要在这里写死 weekday() —— 那样周报和骰子的「本周」会对不上。
+    from ..plan import week_bounds as _wb
+    return _wb(anchor)
 
 
 def month_bounds(anchor: dt.date) -> tuple[dt.date, dt.date]:
@@ -136,6 +138,10 @@ def build(kind: str, start: dt.date, end: dt.date) -> dict:
                     "e1rm": _delta(md.e1rm, " kg"),
                 } for md in cmp.movements],
                 "added": cmp.added, "dropped": cmp.dropped,
+                # 口径存疑、被排除在配对之外的动作。**必须带进报告** ——
+                # 它们的组数和容量仍在组级合计里，逐动作表却不会出现，
+                # 不说明的话读者会发现行加不出总数而且没有任何解释。
+                "excluded": cmp.excluded,
             })
 
         # 处方：对本期练过的每个主要肌群
@@ -147,7 +153,8 @@ def build(kind: str, start: dt.date, end: dt.date) -> dict:
             if src is None:
                 continue
             rx = prescribe_group(g, src, cmp_by_group.get(g),
-                                 weekly_sets=group_sets[g] / weeks, body_trend=trend)
+                                 weekly_sets=group_sets[g] / weeks,
+                                 window_label="本期周均", body_trend=trend)
             if rx.has_content:
                 prescriptions.append(_d(rx))
 
@@ -233,6 +240,11 @@ def build(kind: str, start: dt.date, end: dt.date) -> dict:
         "unclassified_movements": unknown,
         "volume_incomplete": any(s.volume_incomplete for s in period),
         "meals_logged": len(meals),
+        # 折算过的负荷必须在报告里交代 —— 报告是会被拿去和训记 app 逐条核对的，
+        # 数字对不上而没有解释，整份报告的可信度就没了。原始记录未被修改。
+        "calibrated_movements": sorted({
+            f"{ms.name} ×{ms.calib_ratio:g}"
+            for s in period for ms in s.movements if ms.calib_ratio}),
     }
 
     return {
@@ -302,7 +314,10 @@ def build(kind: str, start: dt.date, end: dt.date) -> dict:
 
 def _period_label(kind: str, start: dt.date, end: dt.date) -> str:
     if kind == "weekly":
-        y, w, _ = start.isocalendar()
+        # isocalendar() 按定义从周一起算。周起始日设成周日时直接拿 start 去问，
+        # 那个周日会被算进上一周，编号差 1 —— 所以取这一周里的周一当锚点。
+        from ..plan import week_label_anchor
+        y, w, _ = week_label_anchor(start).isocalendar()
         return f"{y} 年第 {w} 周"
     if kind == "monthly":
         return f"{start.year} 年 {start.month} 月"
@@ -313,7 +328,8 @@ def _period_label(kind: str, start: dt.date, end: dt.date) -> str:
 
 def slug(kind: str, start: dt.date) -> str:
     if kind == "weekly":
-        y, w, _ = start.isocalendar()
+        from ..plan import week_label_anchor
+        y, w, _ = week_label_anchor(start).isocalendar()
         return f"{y}-W{w:02d}"
     if kind == "monthly":
         return f"{start.year}-{start.month:02d}"

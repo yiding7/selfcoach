@@ -601,7 +601,10 @@ def roll(
     used = red_used(month, settled)
     quota_left = max(0, quota - len(used))
 
-    week_start = today - dt.timedelta(days=today.weekday())
+    # 周起始日是全局配置。骰子的「本周黄灯数」和周报的「本周」必须是同一个桶 ——
+    # 两个「本周」对不上，用户就再也不能信任任何一个带「本周」的数字。
+    from .plan import week_start_of
+    week_start = week_start_of(today)
     yellow_this_week = sum(
         1 for r in settled
         if r.get("tier") == "黄"

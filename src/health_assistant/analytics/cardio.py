@@ -45,10 +45,10 @@ def _profile() -> dict:
 
 
 def age_now(today: dt.date | None = None) -> int | None:
-    by = _profile().get("birth_year")
-    if not by:
-        return None
-    return (today or dt.date.today()).year - int(by)
+    # 年龄的真相源是 age.py —— 这里曾经和 nutrition.py 各写一份同样的减法。
+    # 档案由本模块提供，理由同 nutrition.age_years。
+    from ..age import age
+    return age(today, _profile())
 
 
 def hr_max() -> tuple[float | None, str]:

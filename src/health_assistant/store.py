@@ -173,8 +173,18 @@ def upsert_sessions(sessions: list[dict]) -> int:
     return written
 
 
-def load_sessions(start: str | None = None, end: str | None = None) -> list[dict]:
-    """读取日期区间内的全部会话（含手记）。区间为闭区间的 YYYY-MM-DD。"""
+def load_sessions(start: str | None = None, end: str | None = None,
+                  *, calibrate: bool = True) -> list[dict]:
+    """读取日期区间内的全部会话（含手记）。区间为闭区间的 YYYY-MM-DD。
+
+    默认会套上 `data/load-calibration.jsonl` 里的负荷口径规则 ——
+    绳索器械换机位会让同一动作的标称重量差一倍，折算在读取时做。
+    **原始文件永远不改**，见 `calibration.py` 顶部的说明。
+
+    ⚠️ 写盘路径（sync / rebuild / log）用的是 `load_sessions_month()`，
+    刻意不经过这里。折算一旦被烘进原始文件就再也回不去了。
+    `calibrate=False` 留给测试和「我要看原始值」的场合。
+    """
     if not TRAINING_DIR.exists():
         return []
     out: list[dict] = []
@@ -185,6 +195,9 @@ def load_sessions(start: str | None = None, end: str | None = None) -> list[dict
     if end:
         out = [s for s in out if s.get("date", "") <= end]
     out.sort(key=lambda s: (s.get("date", ""), s.get("start_ms") or 0, s.get("id", "")))
+    if calibrate:
+        from .calibration import apply_rules
+        out = apply_rules(out)
     return out
 
 

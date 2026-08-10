@@ -101,6 +101,9 @@ class GroupComparison:
     movements: list[MovementDelta] = field(default_factory=list)
     added: list[str] = field(default_factory=list)
     dropped: list[str] = field(default_factory=list)
+    # 口径存疑、被排除在配对之外的动作（calibration 的 ignore 规则）。
+    # 要展示出来 —— 静默排除等于伪造了一个「什么都没发生」的对比。
+    excluded: list[str] = field(default_factory=list)
     rpe_coverage: float = 0.0
     paired_count: int = 0
 
@@ -214,7 +217,20 @@ def compare_group(current: SessionStats, history: list[SessionStats],
         )
 
     anc_ms = _group_movements(anchor, group)
-    paired, added, dropped = _pair(cur_ms, anc_ms)
+
+    # 被标了「口径存疑」的动作不参与配对，但**照常计入组数和容量** ——
+    # 那些组是真的练了，可疑的只是负荷数字能不能跨两次比。
+    # 把它整条踢出去会凭空少掉几组训练量，那是另一种错。
+    #
+    # ⚠️ 两边必须按**同一个名字集合**过滤，不能各按各的标记过滤。
+    # ignore 规则通常只写在其中一天（CLI 建议的就是 `--date <本次>`），
+    # 只过滤本次的话，锚点那次还留着这个动作，`_pair` 就会把它算成
+    # 「本次没做」—— 于是输出里同时出现「本次没做：面拉」和
+    # 「未参与对比：面拉」，还会生成一条「建议补回」，让用户去补一个
+    # 他当天明明做了的动作。2026-08-10 code review 抓出来的。
+    excluded = sorted({m.name for m in cur_ms + anc_ms if m.compare_excluded})
+    paired, added, dropped = _pair([m for m in cur_ms if m.name not in excluded],
+                                   [m for m in anc_ms if m.name not in excluded])
 
     deltas = []
     for cur, anc in paired:
@@ -270,6 +286,7 @@ def compare_group(current: SessionStats, history: list[SessionStats],
         movements=deltas,
         added=[m.name for m in added],
         dropped=[m.name for m in dropped],
+        excluded=excluded,
         rpe_coverage=coverage,
         paired_count=len(paired),
     )

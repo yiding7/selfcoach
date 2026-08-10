@@ -176,8 +176,11 @@ def recent_weight(today: dt.date, *, days: int = WEIGHT_WINDOW_DAYS
 
 
 def age_years(today: dt.date) -> int | None:
-    birth = _profile().get("birth_year")
-    return today.year - int(birth) if birth else None
+    # 年龄的真相源是 age.py —— 这里曾经和 cardio.py 各写一份同样的减法。
+    # **档案由本模块提供**：age.py 自己也能读盘，但那样就绕过了这里的缓存，
+    # 也让测试没法通过替换本模块的 PROFILE_PATH 来注入。
+    from .age import age
+    return age(today, _profile())
 
 
 def _daily_steps(today: dt.date, *, days: int = 30) -> float | None:

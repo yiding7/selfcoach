@@ -26,7 +26,11 @@ def mask(key: str) -> str:
 def check(*, verbose: bool = False) -> int:
     load_env()
     lines: list[str] = []
-    fatal = 0
+    fatal = 0        # 工具跑不起来 —— 退出码非 0
+    # 工具能跑，但有等着你拍板的事。**不能被「✅ 一切正常」盖过去** ——
+    # 那正是这个项目在忌口那一层明令禁止的「打绿勾糊弄过去」。
+    # 但也不该让退出码非 0：待处理不是故障。
+    todo: list[str] = []
 
     lines.append("训记健康助手 · 环境体检")
     lines.append("=" * 52)
@@ -98,6 +102,24 @@ def check(*, verbose: bool = False) -> int:
     lines.append(f"  {INFO}原始缓存：{len(raw_dates)} 天"
                  f"（可用 `hc rebuild` 离线重算，不消耗任何请求）")
 
+    # 负荷口径。⚠️ 这一条要报「待处理」而不是打绿勾 —— 一个没人看过的
+    # 负荷跳变会让 hc compare 输出「1RM ↓50%」这种既错误又打击人的结论。
+    if sessions:
+        from . import calibration
+        from .analytics.metrics import session_stats, weight_at
+        stats = [session_stats(s, weight_at(body, s["date"])) for s in sessions]
+        rules = calibration.load_rules()
+        pending = calibration.unresolved(stats, rules)
+        if pending:
+            names = "、".join(sorted({j.movement for j in pending}))
+            lines.append(f"  {WARN} 负荷口径：{len(pending)} 处跳变待处理"
+                         f"（{names}）—— 跑 `hc calib` 逐条处置")
+            todo.append(f"{len(pending)} 处负荷跳变待处置 —— `hc calib`")
+        elif rules:
+            lines.append(f"  {OK} 负荷口径：{len(rules)} 条规则生效，无待处理跳变")
+        else:
+            lines.append(f"  {OK} 负荷口径：无可疑跳变")
+
     if body:
         w = [r for r in body if r["type"] == "weight"]
         if w:
@@ -120,6 +142,7 @@ def check(*, verbose: bool = False) -> int:
         ("movement-patterns.json", "动作模式表"),
         ("pattern-balance.json", "结构平衡规则"),
         ("training-landmarks.json", "训练量参考区间"),
+        ("load-measurement.md", "负荷计量规程（绳索传动比）"),
     ):
         p = KNOWLEDGE_DIR / fname
         mark = OK if p.exists() else WARN
@@ -162,6 +185,10 @@ def check(*, verbose: bool = False) -> int:
     lines.append("=" * 52)
     if fatal:
         lines.append(f"{BAD} {fatal} 个问题需要处理")
+    elif todo:
+        lines.append(f"{OK} 环境正常，但有 {len(todo)} 件事等你拍板：")
+        for t in todo:
+            lines.append(f"   · {t}")
     else:
         lines.append(f"{OK} 一切正常")
 

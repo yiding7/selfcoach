@@ -168,6 +168,11 @@ class MovementStats:
     volume_incomplete: bool = False   # 有组因缺体重数据算不出容量
     bodyweight: bool = False          # 自重类动作，重量数字是折算出来的
     assisted: bool = False            # exetype=help，记录的是助力配重，越大越轻松
+    # 负荷口径归一化的痕迹（calibration.py 打的标）。
+    # calib_ratio 不是 None 就说明这里的重量已经被折算过，报告里要说出来 ——
+    # 一个被悄悄改过的数字比一个明显错的数字危险得多。
+    calib_ratio: float | None = None
+    compare_excluded: bool = False     # 口径存疑，本次不参与配对（组数/容量照常计）
 
     @property
     def avg_rpe(self) -> float | None:
@@ -278,6 +283,8 @@ def movement_stats(m: dict, bodyweight_kg: float | None) -> MovementStats:
         volume_incomplete=incomplete,
         bodyweight=any(is_bodyweight(m, s) for s in sets) if sets else False,
         assisted=is_assisted(m),
+        calib_ratio=(m.get("_calib") or {}).get("ratio"),
+        compare_excluded=bool((m.get("_calib") or {}).get("exclude_compare")),
     )
 
 

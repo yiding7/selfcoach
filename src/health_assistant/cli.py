@@ -245,6 +245,28 @@ def cmd_sessions(args) -> int:
     return 0
 
 
+def _calib_note(stats) -> None:
+    """折算过的负荷必须说出来。
+
+    `calibration` 会在读取时按口径规则改写重量，输出里的数字就和
+    `data/training/` 以及训记 app 里的对不上了。**一个被悄悄改过的数字
+    比一个明显错的数字危险得多** —— 用户会拿它去和 app 核对，然后
+    不知道该信哪个。所以凡是展示负荷的地方，都要在末尾交代一句。
+    """
+    if isinstance(stats, (list, tuple)):
+        sessions = stats
+    else:
+        sessions = [stats]
+    folded = sorted({(m.name, m.calib_ratio) for s in sessions
+                     for m in s.movements if m.calib_ratio})
+    if not folded:
+        return
+    items = "、".join(f"{name} ×{ratio:g}" for name, ratio in folded)
+    print(f"\n  ⚖️  上面这些重量按口径规则折算过：{items}")
+    print(f"      与 data/training/ 和训记里的原始数字不同，"
+          f"**原始记录未被修改**。规则见 hc calib list")
+
+
 def _load_stats(since: str | None = None):
     """把本地会话和体重读出来，算成 SessionStats。"""
     from .analytics.metrics import rolling_weight, session_stats, weight_at
@@ -297,6 +319,7 @@ def cmd_summary(args) -> int:
         print(f"合计  {st.sets_done}/{st.sets_planned} 组   总容量 {vol}"
               + (f"   密度 {st.density_kg_per_min:.0f} kg/min"
                  if st.density_kg_per_min else ""))
+        _calib_note(st)
         groups = "、".join(f"{g} {n:.0f}组" for g, n in
                            sorted(st.groups.items(), key=lambda kv: -kv[1]))
         print(f"部位分布  {groups}")
@@ -356,6 +379,9 @@ def cmd_compare(args) -> int:
             print(f"\n  本次新增：{'、'.join(c.added)}")
         if c.dropped:
             print(f"  本次没做：{'、'.join(c.dropped)}")
+        if c.excluded:
+            print(f"  ⊘ 未参与对比（口径存疑）：{'、'.join(c.excluded)}"
+                  f" —— 组数和容量仍照常计入")
 
     # 三个新视角
     mprog = movement_progress(target, history)
@@ -411,12 +437,125 @@ def cmd_compare(args) -> int:
         for f in items:
             print(f"  {icon} {f.text}")
 
+    _calib_note([target] + [s for s in history if s.date in
+                            {c.anchor_date for c in comparisons}])
+    _warn_load_jumps(stats, only_date=target.date)
+
     problems = check_invariants(findings)
     if problems:
         print("\n⚠️  结论结构自检未通过（这是工具的 bug，请反馈）：")
         for p in problems:
             print(f"     {p}")
         return 1
+    return 0
+
+
+def _warn_load_jumps(stats, *, only_date: str | None = None) -> int:
+    """负荷跳变预警。返回待处理的条数。
+
+    刻意放在结论之后：它不是训练结论，是**数据可信度**的问题。
+    放在前面会让人以为工具在质疑他的训练，实际上工具是在质疑自己的数字。
+    """
+    from . import calibration
+
+    jumps = [j for j in calibration.unresolved(stats)
+             if only_date is None or j.date == only_date]
+    if not jumps:
+        return 0
+
+    SHOW = 8
+    print(f"\n{'═' * 62}")
+    print(f"⚠️  负荷口径预警 —— {len(jumps)} 处跳变可能不是力量变化")
+    print("═" * 62)
+
+    print("\n为什么")
+    for line in calibration.explanation(any(j.pulley_suspect for j in jumps)):
+        print(f"  {line}")
+
+    print("\n哪几处")
+    for i, j in enumerate(jumps[:SHOW], 1):
+        tag = "  [滑轮组]" if j.pulley_suspect else ""
+        print(f"  {i}. {j.headline()}{tag}")
+    if len(jumps) > SHOW:
+        print(f"  …… 还有 {len(jumps) - SHOW} 处没列出来（`hc calib check` 看全部）")
+
+    print("\n怎么处置 —— 四选一，每条各自决定")
+    print("  1 改原始记录数据（数据源也改）")
+    print("  2 只改项目内的数（原始文件不动，读取时折算）")
+    print("  3 忽略这次该动作的对比（组数容量照常计入）")
+    print("  4 确认是真实数据（留痕，不再预警）")
+    print("\n  照抄就能跑：")
+    for i, j in enumerate(jumps[:SHOW], 1):
+        print(f"    # {i}. {j.movement}")
+        print(f"    1: hc sync train --date {j.date} --force"
+              f"      （先去训记改那天的记录）")
+        print(f"    2: hc calib set '{j.movement}' --date {j.prev_date} "
+              f"--ratio 0.5   （旧机位若是 2:1 就是 0.5）")
+        print(f"    3: hc calib set '{j.movement}' --date {j.date} --ignore")
+        print(f"    4: hc calib set '{j.movement}' --date {j.date} --confirm")
+    print("\n  折算成哪个口径由你定：把**现在这台**当基准就折算旧的，"
+          "反过来也行 —— 只要全序列统一。")
+    return len(jumps)
+
+
+def cmd_calib(args) -> int:
+    """负荷口径归一化：查看跳变、写规则。"""
+    from . import calibration
+
+    if args.action == "list":
+        rules = calibration.load_rules()
+        if not rules:
+            print("还没有任何口径规则。跑 `hc calib check` 看看有没有可疑跳变。")
+            return 0
+        print(f"\n生效中的口径规则（{len(rules)} 条，文件 {calibration.PATH}）")
+        print("─" * 62)
+        for r in rules:
+            print(f"  {r.describe()}")
+            if r.note:
+                print(f"      {r.note}")
+        print("\n规则文件只追加不修改。改主意就新写一条 --supersedes <旧ID>。")
+        return 0
+
+    if args.action == "set":
+        if not (args.movement or "").strip():
+            print("要指定动作名：hc calib set '<动作>' --date <日期> --ratio 0.5")
+            print("看有哪些待处理：hc calib check")
+            return 1
+        chosen = [k for k in ("ratio", "ignore", "confirm")
+                  if getattr(args, k, None)]
+        if len(chosen) != 1:
+            print("要且只要一个处置：--ratio <系数> / --ignore / --confirm")
+            return 1
+        action = "scale" if args.ratio else ("ignore" if args.ignore else "confirm")
+        if args.date and (args.date_from or args.date_to):
+            print("--date 和 --from/--to 不能一起用。--date 是单日的简写。")
+            return 1
+        lo = args.date or args.date_from
+        hi = args.date or args.date_to
+        try:
+            rule = calibration.add_rule(
+                args.movement, action, ratio=args.ratio, date_from=lo, date_to=hi,
+                note=args.note or "", supersedes=args.supersedes)
+        except ValueError as e:
+            print(f"❌ {e}")
+            return 1
+        print(f"✅ 已记 {rule.describe()}")
+        if action == "scale":
+            print("   原始文件一个字没动 —— 折算是在读取时做的，"
+                  "`hc rebuild` 也不会把它冲掉。")
+        print("   核对：hc calib list　效果：hc compare")
+        return 0
+
+    # 默认：check
+    stats, _ = _load_stats()
+    if not stats:
+        print("本地还没有训练记录。")
+        return 0
+    n = _warn_load_jumps(stats)
+    rules = calibration.load_rules()
+    if not n:
+        print(f"✅ 没有待处理的负荷跳变"
+              + (f"（已有 {len(rules)} 条口径规则在生效）" if rules else "") + "。")
     return 0
 
 
@@ -439,19 +578,37 @@ def cmd_next(args) -> int:
     history = [s for s in stats if s.id != target.id]
     cmp = compare_group(target, history, group)
 
-    # 本周该肌群的总组数
+    # 该肌群最近 7 天的总组数。
+    #
+    # 这里曾经取的是「target.date 所在自然周」的组数，有两个毛病：
+    #   1. 算的是**上一次训练那一周**，而这条建议是给**下一次**训练的。
+    #      背日周频不到 1 次时，下次训练多半落在新的一周，这个数没有意义。
+    #   2. 它跟着周起始日走 —— 周日练完，按周一起算就是「本周 0 组」，
+    #      恢复状态和日历怎么切没有半点关系。
+    #
+    # 改成滚动 7 天：问的是「这块肌肉最近七天吃了多少量」，
+    # 这才是 MRV（最大可恢复容量）真正想问的问题，且与周起始日无关。
+    #
+    # ⚠️ 窗口必须以**今天**结尾，不是以上次训练那天结尾。
+    # 一度写成 `target.date - 6 天 ~ target.date`，那等于把「上次训练那一周」
+    # 换了个名字叫「最近 7 天」：上次背日在 20 天前练了 16 组的话，
+    # 这个窗口照样数出 16 组、照样触发 OVER_MRV_HOLD，而那块肌肉其实
+    # 已经休息了 20 天。恢复状态问的是当下，不是上次训练那会儿。
     import datetime as dt
-    last = dt.date.fromisoformat(target.date)
-    week_start = (last - dt.timedelta(days=last.weekday())).isoformat()
-    weekly = sum(s.groups.get(group, 0) for s in stats if s.date >= week_start)
+    today = dt.date.today()
+    window_start = (today - dt.timedelta(days=6)).isoformat()
+    recent = sum(s.groups.get(group, 0) for s in stats
+                 if window_start <= s.date <= today.isoformat())
+    window_label = f"最近 7 天（{window_start} ~ {today.isoformat()}）"
 
-    rx = prescribe_group(group, target, cmp, weekly_sets=weekly, body_trend=trend)
+    rx = prescribe_group(group, target, cmp, weekly_sets=recent,
+                         window_label=window_label, body_trend=trend)
 
     print(f"\n{'═' * 62}")
     print(f"下次「{group}」训练建议")
     print("═" * 62)
     print(f"  基于 {target.date} 那次训练（{target.label}）")
-    print(f"  本周 {group} 已练 {weekly:.0f} 组")
+    print(f"  {window_label}{group} 已练 {recent:.0f} 组")
     if rx.rationale:
         print(f"  生效护栏：{'、'.join(rx.rationale)}")
 
@@ -464,9 +621,29 @@ def cmd_next(args) -> int:
         load = f"{p.load_kg:.1f}kg" if p.load_kg is not None else "—"
         print(f"{p.name[:22]:<24}{p.sets:>4}{load:>10}{p.rep_target:>10}  {p.change}")
     print("─" * 62)
-    print(f"合计 {rx.total_sets} 组\n")
+    line = f"合计 {rx.total_sets} 组"
+    if rx.optional_sets:
+        line += f"（另有 {rx.optional_sets} 组可选，不计入）"
+    print(line)
+
+    # 单次时长预算：只提示，不截断。
+    # 用户 2026-08-10 明确选了「自己排训练内容」而不是「让脚本加硬上限」，
+    # 所以这里把预算和差额摆出来，砍哪几组由他决定。
+    from . import plan as _plan
+    cap = _plan.current().session_set_cap
+    if cap:
+        mins = _plan.current().session_minutes
+        if rx.total_sets > cap:
+            print(f"⚠️  你的单次预算是 {mins} 分钟 ≈ {cap} 组（所有部位合计），"
+                  f"光「{group}」就有 {rx.total_sets} 组 —— 会超。")
+        else:
+            print(f"   单次预算 {mins} 分钟 ≈ {cap} 组（所有部位合计），"
+                  f"「{group}」占 {rx.total_sets} 组。")
+    print()
+
     for p in rx.movements:
         print(f"  {p.name}：{p.why}")
+    _calib_note(target)
     return 0
 
 
@@ -899,7 +1076,7 @@ def cmd_setup(args) -> int:
             print(f"  用来做  {why}")
         return 0
     try:
-        return setup_mod.run()
+        return setup_mod.run(dry_run=args.dry_run)
     except (KeyboardInterrupt, EOFError):
         print("\n已取消，没有写盘。")
         return 130
@@ -933,6 +1110,8 @@ def build_parser() -> argparse.ArgumentParser:
     su = sub.add_parser("setup", help="引导式填写个人数据（一次问完，写回各自的真相源）")
     su.add_argument("--show", action="store_true",
                     help="只列出「什么数据填在哪」，不进入问答")
+    su.add_argument("--dry-run", action="store_true",
+                    help="走完全部问答但**一个字都不写盘**，只打印会改什么")
     su.set_defaults(func=cmd_setup)
 
     d = sub.add_parser("doctor", help="环境体检")
@@ -992,6 +1171,21 @@ def build_parser() -> argparse.ArgumentParser:
     cp.add_argument("--date", help="日期，默认最近一次")
     cp.add_argument("--group", help="只看某个部位，比如 胸")
     cp.set_defaults(func=cmd_compare)
+
+    cb = sub.add_parser("calib", help="负荷口径：同一动作换机位导致的重量跳变")
+    cb.add_argument("action", nargs="?", default="check", choices=("check", "set", "list"),
+                    help="check=看有哪些可疑跳变（默认）  set=写规则  list=看现有规则")
+    cb.add_argument("movement", nargs="?", help="动作名（set 时必填）")
+    cb.add_argument("--date", help="只对这一天生效")
+    cb.add_argument("--from", dest="date_from", help="起始日期（含）")
+    cb.add_argument("--to", dest="date_to", help="结束日期（含）")
+    cb.add_argument("--ratio", type=float,
+                    help="折算系数。旧机位是 2:1 就填 0.5。原始文件不动")
+    cb.add_argument("--ignore", action="store_true", help="该动作该次不参与对比")
+    cb.add_argument("--confirm", action="store_true", help="确认是真实变化，不再预警")
+    cb.add_argument("--note", help="为什么这么定，写给半年后的自己")
+    cb.add_argument("--supersedes", help="推翻哪条旧规则（只追加，不改旧的）")
+    cb.set_defaults(func=cmd_calib)
 
     nx = sub.add_parser("next", help="下次同部位训练的具体建议")
     nx.add_argument("group", help="部位，比如 胸 / 背 / 腿")
