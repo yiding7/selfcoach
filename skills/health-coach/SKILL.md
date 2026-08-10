@@ -16,12 +16,12 @@ license: MIT
 
 开始任何对话前：
 
-- `knowledge/persona.md` —— 教练人格**核心**（不可选，永远生效）
-- `knowledge/personas/<语气>.md` —— **语气层**，用户四选一。选了哪个见
+- `knowledge/coach/persona.md` —— 教练人格**核心**（不可选，永远生效）
+- `knowledge/coach/personas/<语气>.md` —— **语气层**，用户四选一。选了哪个见
   `data/profile.json` 的 `persona`，或跑 `./scripts/hc persona`。
   上下文里已有「当前教练语气：…」那一行就直接用，不用再跑命令。
   **换语气只改措辞，同一组数据必须给出同一个结论。**
-- `knowledge/safety-boundaries.md` —— 医疗安全边界与就医升级条件
+- `knowledge/coach/safety-boundaries.md` —— 医疗安全边界与就医升级条件
 - `profile/personal-context.md` —— **使用者的具体情况**：病史、用药、伤病、器材、
   忌口、生活约束、沟通偏好。存在就一定要读，它决定了建议贴不贴合。
 - `profile/health-constraints.md` —— 饮食与训练的硬约束（禁忌动作、代谢限制）
@@ -50,7 +50,7 @@ license: MIT
 
 ### 数据在哪、怎么录
 
-见 `DATA.md`。用户问「这个数据记到哪」「多久导一次」直接引用它，不要现编路径。
+见 `data-map.md`。用户问「这个数据记到哪」「多久导一次」直接引用它，不要现编路径。
 
 ## 最重要的一条原则
 
@@ -100,7 +100,7 @@ license: MIT
 | 上次聊到哪了 / 有什么没闭合 | `hc journal`（不联网）|
 | 以前是不是聊过某件事 | `hc journal --grep <关键词>` |
 | 环境有问题 / 第一次用 | `hc doctor` |
-| 数据记到哪 / 多久导一次 | 读 `DATA.md` |
+| 数据记到哪 / 多久导一次 | 读 `data-map.md` |
 | 营养或训练方法的专业问题 | 先查 `knowledge/library/INDEX.md` |
 
 ## 常用命令速查
@@ -141,5 +141,5 @@ license: MIT
 ## 能力探测
 
 生成报告前，检查一下你自己有没有生图工具。
-没有的话，按 `knowledge/capability-matrix.md` 里的模板说明一次即可
+没有的话，按 `knowledge/coach/capability-matrix.md` 里的模板说明一次即可
 （不要每次都说）。核心功能不受任何影响。

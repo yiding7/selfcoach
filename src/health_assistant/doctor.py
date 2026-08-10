@@ -135,16 +135,16 @@ def check(*, verbose: bool = False) -> int:
 
     # ── 知识库 ──
     lines.append(f"\n{'知识库（通用，可分享）':─<16}")
-    for fname, desc in (
-        ("persona.md", "教练人格"),
-        ("safety-boundaries.md", "医疗安全边界"),
-        ("movement-taxonomy.json", "动作肌群表"),
-        ("movement-patterns.json", "动作模式表"),
-        ("pattern-balance.json", "结构平衡规则"),
-        ("training-landmarks.json", "训练量参考区间"),
-        ("load-measurement.md", "负荷计量规程（绳索传动比）"),
+    for rel, desc in (
+        ("coach/persona.md", "教练人格"),
+        ("coach/safety-boundaries.md", "医疗安全边界"),
+        ("movements/movement-taxonomy.json", "动作肌群表"),
+        ("movements/movement-patterns.json", "动作模式表"),
+        ("movements/pattern-balance.json", "结构平衡规则"),
+        ("training/training-landmarks.json", "训练量参考区间"),
+        ("measurement/load-measurement.md", "负荷计量规程（绳索传动比）"),
     ):
-        p = KNOWLEDGE_DIR / fname
+        p = KNOWLEDGE_DIR / rel
         mark = OK if p.exists() else WARN
         lines.append(f"  {mark.rstrip()} {desc}{'' if p.exists() else '  ← 缺失'}")
 

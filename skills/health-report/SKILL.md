@@ -61,7 +61,7 @@ TXT
 ## 配图
 
 报告里的图表全部是内联 SVG，代码渲染，深浅色自适应，可打印成 PDF。
-生成前检查一下你有没有生图工具：没有就按 `knowledge/capability-matrix.md`
+生成前检查一下你有没有生图工具：没有就按 `knowledge/coach/capability-matrix.md`
 的模板提一句（一次就够），核心内容不受影响。
 
 ⚠️ 即使有生图能力，**动作要领示意图也建议继续用手绘 SVG**。

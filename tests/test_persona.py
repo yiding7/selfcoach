@@ -118,7 +118,7 @@ class TestSetTone:
     def test_leaves_a_comment_explaining_the_field(self, sandbox):
         persona.set_tone("calm")
         data = json.loads(sandbox["profile"].read_text(encoding="utf-8"))
-        assert "knowledge/persona.md" in data["_persona_comment"]
+        assert "knowledge/coach/persona.md" in data["_persona_comment"]
 
     def test_rejects_unknown_tone_without_writing(self, sandbox):
         _write_profile(sandbox["profile"], {"persona": "warm"})
@@ -155,7 +155,7 @@ class TestShippedFiles:
 
     def test_core_points_at_the_tone_layer(self):
         core = persona.CORE_PATH.read_text(encoding="utf-8")
-        assert "knowledge/personas/" in core
+        assert "knowledge/coach/personas/" in core
 
     def test_knowledge_dir_carries_no_identity(self):
         """knowledge/ 进版本库且仓库公开，名字只能待在 profile/。"""

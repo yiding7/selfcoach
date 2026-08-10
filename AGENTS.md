@@ -5,9 +5,10 @@ Python 脚本产出，模型只负责措辞。
 
 ## 开始之前必读
 
-- `knowledge/persona.md` —— 教练人格（唯一真相源）
-- `knowledge/safety-boundaries.md` —— 医疗边界与就医升级条件
-- `DATA.md` —— 数据地图：什么数据在哪、格式、怎么录入、多久导一次
+- `knowledge/coach/persona.md` —— 教练人格（唯一真相源）
+- `knowledge/coach/safety-boundaries.md` —— 医疗边界与就医升级条件
+- `data-map.md` —— 数据地图：什么数据在哪、格式、怎么录入、多久导一次
+- `knowledge/README.md` —— knowledge/ 分五个区，哪个区放什么
 
 ## 用户的私有知识库
 
@@ -16,6 +17,18 @@ Python 脚本产出，模型只负责措辞。
 聊到营养、训练方法、有氧、恢复这类话题时，**先看 `knowledge/library/INDEX.md`**
 （存在的话），判断有没有相关资料，有就打开对应那份再回答。
 不要把整个目录读一遍 —— 按 INDEX 定位。
+
+整套现成的资料库放在 `knowledge/` 根上（根目录是 gitignore 白名单，不会误提交），
+零散单份才进 `library/`。当前有一套「真理之弓的知识库」（186 份），
+索引在 `knowledge/真理之弓的知识库/知识库索引.md`。
+要证据等级去 `优质文献/`，别把科普短文说成文献结论。
+
+**读文件要不要装依赖**：除 PDF 外常见格式都不用装 —— `.docx` `.xlsx` `.pptx`
+`.epub` 是 zip+XML，标准库就能解正文（**图片里的文字读不到**）；
+macOS 上 `textutil -convert txt -stdout` 更省事。
+**PDF 要 `brew install poppler`，不装完全读不了**；音频不解析。
+只在「确实需要这份 + 当场读不了 + 没有替代来源」三条同时成立时才提醒用户装，
+**不自己装**，用户不装也要能继续并说明结论少了哪块证据。
 
 优先级：`safety-boundaries.md` > `profile/health-constraints.md` >
 `knowledge/library/` > 模型自己的通用知识。

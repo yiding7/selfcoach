@@ -19,7 +19,7 @@ from ..config import KNOWLEDGE_DIR
 from .compare import GroupComparison
 from .metrics import MovementStats, SessionStats
 
-LANDMARKS_PATH = KNOWLEDGE_DIR / "training-landmarks.json"
+LANDMARKS_PATH = KNOWLEDGE_DIR / "training" / "training-landmarks.json"
 
 # 体重周降幅超过这个百分比，就认为处在明显缺口期，策略转为保强度
 FAST_LOSS_PCT_PER_WEEK = 1.0

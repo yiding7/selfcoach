@@ -14,6 +14,18 @@ profile/*
 # 模板要提交，供其他人参照填写（注意：.gitignore 不支持行尾注释）
 !profile/*.example.md
 chat-history/
+# knowledge/ 根目录是**白名单**：只有下面这六个区 + README 进版本库。
+# 其余一律当成私人资料忽略掉 —— 这是有意的，不是防御性的。
+# 整套现成的知识库（教材、课程包、文献库）就该原样丢在 knowledge/ 根上，
+# 白名单保证它们不会被误提交。零散单份资料进 knowledge/library/。
+knowledge/*
+!knowledge/README.md
+!knowledge/coach/
+!knowledge/measurement/
+!knowledge/movements/
+!knowledge/training/
+!knowledge/nutrition/
+!knowledge/library/
 # knowledge/library/ 是你自己的专业资料（教材、课程、笔记）。
 # 只提交目录骨架、README 和 INDEX 模板，内容一律留在本地。
 knowledge/library/*
@@ -28,9 +40,6 @@ data/
 
 # ── 生成物 ────────────────────────────────────────────
 reports/
-
-# ── 嵌套的无关仓库 ────────────────────────────────────
-xeo-fitness/
 
 # ── install.sh 生成的宿主软链 ─────────────────────────
 # skills/ 才是真相源；这些只是链到宿主期望位置的软链，

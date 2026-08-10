@@ -1,5 +1,5 @@
 {
-  "_comment": "由 scripts/build_taxonomy.py 从训记官方动作名表 + knowledge/movement-rules.json 生成。动作名表本身没有肌群列，分类由关键词规则推导，已人工复核。接口返回的 movements[].type 优先级高于本表。",
+  "_comment": "由 scripts/build_taxonomy.py 从训记官方动作名表 + knowledge/movements/movement-rules.json 生成。动作名表本身没有肌群列，分类由关键词规则推导，已人工复核。接口返回的 movements[].type 优先级高于本表。",
   "_source": "https://raw.githubusercontent.com/Foveluy/Xunji-movements/HEAD/README.md",
   "_count": 1090,
   "movements": {

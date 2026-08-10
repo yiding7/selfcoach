@@ -1,8 +1,8 @@
 """动作名 → 肌群。三级回退。
 
   1. 训记接口返回的 `movements[].type`      —— 最可信，但实测约 60% 为空
-  2. 预分类表 knowledge/movement-taxonomy.json —— 覆盖官方 1092 个动作名
-  3. 关键词规则 knowledge/movement-rules.json  —— 兜底，也覆盖自定义动作名
+  2. 预分类表 knowledge/movements/movement-taxonomy.json —— 覆盖官方 1092 个动作名
+  3. 关键词规则 knowledge/movements/movement-rules.json  —— 兜底，也覆盖自定义动作名
   4. 用户覆盖 data/movement-overrides.json     —— 优先级最高，教一次记一辈子
 
 刻意放在 analytics 层而不是 normalize 层：这样改进分类规则会立刻对全部历史生效，
@@ -18,8 +18,8 @@ from functools import lru_cache
 
 from .config import DATA_DIR, KNOWLEDGE_DIR
 
-RULES_PATH = KNOWLEDGE_DIR / "movement-rules.json"
-TAXONOMY_PATH = KNOWLEDGE_DIR / "movement-taxonomy.json"
+RULES_PATH = KNOWLEDGE_DIR / "movements" / "movement-rules.json"
+TAXONOMY_PATH = KNOWLEDGE_DIR / "movements" / "movement-taxonomy.json"
 OVERRIDES_PATH = DATA_DIR / "movement-overrides.json"
 
 UNKNOWN = "未分类"

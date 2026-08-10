@@ -24,7 +24,7 @@ from functools import lru_cache
 from ..config import DATA_DIR, KNOWLEDGE_DIR
 from .metrics import SessionStats
 
-ZONES_PATH = KNOWLEDGE_DIR / "hr-zones.json"
+ZONES_PATH = KNOWLEDGE_DIR / "training" / "hr-zones.json"
 PROFILE_PATH = DATA_DIR / "profile.json"
 
 
