@@ -9,7 +9,7 @@
 两条铁律：
 
 1. **只发聚合后的 findings，不发原始数据。** 餐食记录、用药信息、体检数值
-   都不出本机。见 knowledge/safety-boundaries.md。
+   都不出本机。见 knowledge/coach/safety-boundaries.md。
 
 2. **数字幻觉拦截。** 模型返回的文本里出现的每个数字，都必须能在 facts 里找到。
    找不到就丢弃这段叙述，退回纯数据模式。报告宁可少一段话，
@@ -26,7 +26,7 @@ import urllib.request
 
 from .config import KNOWLEDGE_DIR, load_env
 
-PERSONA_PATH = KNOWLEDGE_DIR / "persona.md"  # 保留给外部引用；组装走 persona.load()
+PERSONA_PATH = KNOWLEDGE_DIR / "coach" / "persona.md"  # 保留给外部引用；组装走 persona.load()
 
 # 允许出现在叙述里、但不需要在 facts 里找到的数字：
 # 年份、月份、周数、小数点后的位数、常见序数

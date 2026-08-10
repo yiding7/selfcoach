@@ -6,7 +6,7 @@
 在 B 机位标 18 kg，手上受的力可能完全一样。脚本按动作名老实配对，
 就会算出「估算 1RM ↓ 50%」—— 数字没算错，含义是假的。
 
-机制和完整测法见 `knowledge/load-measurement.md`。
+机制和完整测法见 `knowledge/measurement/load-measurement.md`。
 
 ## 为什么不写进动作名
 
@@ -305,7 +305,7 @@ def explanation(pulley: bool) -> list[str]:
     lines.append(
         "其他常见原因：换了器械、史密斯杆自重不同、单侧动作记法变了"
         "（单手 vs 双手合计）、输入时点错了一档。")
-    lines.append("完整说明见 knowledge/load-measurement.md。")
+    lines.append("完整说明见 knowledge/measurement/load-measurement.md。")
     return lines
 
 

@@ -14,7 +14,7 @@ license: MIT
 ## 先读
 
 - `profile/food-traffic-light.md` —— 红黄绿灯框架
-- `knowledge/safety-boundaries.md` —— 边界
+- `knowledge/coach/safety-boundaries.md` —— 边界
 - `knowledge/library/INDEX.md` —— **使用者自己的营养资料库**（存在的话）。
   先看 INDEX 判断有没有相关的，有就打开那一份。按 INDEX 定位，别通读整个目录。
   资料里的用药、治病补剂方案一律不照搬，转医生；和 `health-constraints.md`
@@ -74,7 +74,7 @@ license: MIT
 
 ## 嘌呤：不要凭印象说话
 
-**只以 `knowledge/purine-reference.json` 为准**（USDA/ODS-NIH 实测值）。
+**只以 `knowledge/nutrition/purine-reference.json` 为准**（USDA/ODS-NIH 实测值）。
 这张表里有几条是反直觉的，凭常识回答很容易说错：
 
 | 别说 | 实际 |
@@ -110,4 +110,4 @@ license: MIT
 
 `profile/` 不进版本库，是私密的。
 
-涉及用药、指标解读、是否需要治疗，一律转给医生，见 `knowledge/safety-boundaries.md`。
+涉及用药、指标解读、是否需要治疗，一律转给医生，见 `knowledge/coach/safety-boundaries.md`。

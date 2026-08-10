@@ -27,7 +27,7 @@ license: MIT
 
 - 如果他之前记过同一个动作、这次数字**变化超过 30%**，问一句是不是换了机位，
   不要默认是力量变化
-- 口径和怎么测传动比，见 **`knowledge/load-measurement.md`**。结论是
+- 口径和怎么测传动比，见 **`knowledge/measurement/load-measurement.md`**。结论是
   **记手上的力（标称 ÷ 传动比）**，不是记配重片读数
 - 已经混过口径的历史数据**不要回头改** —— 划一条起算线记进
   `profile/personal-context.md`，之前的只当量级参考

@@ -1,29 +1,13 @@
 # 数据地图与维护手册
 
-> 这份文档回答三个问题：**数据在哪、格式长什么样、多久要动一次手。**
+> **这份是「要动手改文件时才翻」的参考手册** —— 每个目录装什么、jsonl 逐字段
+> 长什么样、怎么手工维护、出问题查哪里。
 >
-> 最后更新：2026-08-04
-
----
-
-## 0. 一分钟版本
-
-| 你的数据 | 怎么进来 | 你要做什么 | 频率 |
-|---|---|---|---|
-| 力量训练 | 训记 app → 后台自动同步 | **什么都不用做** | 自动，每 3 小时 |
-| 有氧 | Apple Watch → 训记 → 自动同步 | **什么都不用做** | 自动，每 3 小时 |
-| 体重 | Apple Health → 训记 → 自动同步 | **什么都不用做** | 自动，每 3 小时 |
-| 腰围/围度 | 自己测 → 记进训记或 Apple Health | 量一次、记一次 | **每周一次** |
-| 饮酒 / 步数 / 睡眠 / 静息心率 | Apple Health 导出 zip → 手动导入 | 导出 + 跑一条命令 | **每月一次** |
-| 体检报告 | PDF 丢进目录 → 让助手解析 | 拷贝文件 + 说一句话 | 每次体检后 |
-
-**只有两件事需要你定期动手：每周量围度、每月导一次苹果健康。** 其余全自动。
-
-核对随时用：
-
-```bash
-./scripts/hc status      # 不联网，秒回：数据抓到哪天、缺几天、自动同步还活着没
-```
+> **想知道「数据从哪来、我要做什么、多久一次」，看 README 的
+> [你要自己填什么](README.md#你要自己填什么)** —— 那一节够日常用了，
+> 不用读这份。
+>
+> 最后更新：2026-08-11
 
 ---
 
@@ -39,7 +23,7 @@
 | `data/body/YYYY.jsonl` | **体重、体脂、腰围、臀围** | `hc sync body` / `hc import-health` / 助手 |
 | `data/apple-health/metrics.jsonl` | 步数、睡眠、静息心率、HRV、饮酒、饮水、运动分钟 | `hc import-health` |
 | `data/meals/YYYY-MM.jsonl` | 饮食记录 | `hc sync food` / 助手 |
-| `data/dice.jsonl` | **食物骰子摇过什么**（是「摇过」不是「吃过」，见 §8）| `hc dice` |
+| `data/dice.jsonl` | **食物骰子摇过什么**（是「摇过」不是「吃过」，见 §7）| `hc dice` |
 | `data/profile.json` | 性别、**出生年月**、身高、目标、训练计划与周起始日 —— 引擎算心率区间要用 | `hc setup` |
 | `data/autosync.log` | 后台同步日志 | `hc autosync` |
 
@@ -57,22 +41,38 @@
 | `profile/food-traffic-light.md` | 食物红绿灯清单 |
 | `profile/dish-pool.local.json` | 食物骰子的个人候选池（同名覆盖通用池）|
 | `profile/family-health-context.md` | 家族史 |
-| `profile/coach-journal/YYYY-MM.jsonl` | **教练工作日志** —— 线索层，**不是事实**。见 §7 |
+| `profile/coach-journal/YYYY-MM.jsonl` | **教练工作日志** —— 线索层，**不是事实**。见 §6 |
 
 > ⚠️ 除 `coach-journal/` 外，`profile/` 里的文件都是**事实**。
-> `coach-journal/` 是助手随手记的笔记，权威性排在最底下，单独看 §7。
+> `coach-journal/` 是助手随手记的笔记，权威性排在最底下，单独看 §6。
 
 ### `knowledge/` —— 通用知识（**进版本库**，任何人可用）
 
+按主题分五个区，外加你自己的资料区。导航见 `knowledge/README.md`。
+
 | 路径 | 装什么 |
 |---|---|
-| `knowledge/persona.md` | 教练人格**核心** —— 说什么、以什么为准、什么绝对不做。不可选 |
-| `knowledge/personas/*.md` | **语气层** —— 怎么说。四选一，见 `data/profile.json` 的 `persona`。`hc persona` 看当前值，`hc setup` 或 `hc persona --set` 切换 |
-| `knowledge/dish-pool.json` | 食物骰子的通用候选池（只存分档，不存热量克数）|
-| `knowledge/safety-boundaries.md` | 医疗边界与就医升级条件 |
-| `knowledge/load-measurement.md` | **负荷计量规程** —— 绳索器械的传动比怎么测、记什么口径。同一动作换机位数字差一倍，这份解决它 |
-| `knowledge/training-landmarks.json` | 周容量参考区间（MEV/MAV/MRV）+ 次数区间。`hc next` 读它 |
-| `knowledge/library/` | **你自己的专业资料库（不进版本库）** —— 见其 `README.md` |
+| `knowledge/coach/persona.md` | 教练人格**核心** —— 说什么、以什么为准、什么绝对不做。不可选 |
+| `knowledge/coach/personas/*.md` | **语气层** —— 怎么说。四选一，见 `data/profile.json` 的 `persona`。`hc persona` 看当前值，`hc setup` 或 `hc persona --set` 切换 |
+| `knowledge/coach/safety-boundaries.md` | 医疗边界与就医升级条件 |
+| `knowledge/coach/capability-matrix.md` | 不同宿主能干什么（生图、读 PDF…），报告降级时按它说明 |
+| `knowledge/measurement/load-measurement.md` | **负荷计量规程** —— 绳索器械的传动比怎么测、记什么口径。同一动作换机位数字差一倍，这份解决它 |
+| `knowledge/measurement/measurement-protocol.md` | 围度测量规程：量在哪、怎么读数 |
+| `knowledge/movements/*.json` | 动作分类、动作模式、结构平衡规则（`hc classify` `hc next` 读）|
+| `knowledge/training/training-landmarks.json` | 周容量参考区间（MEV/MAV/MRV）+ 次数区间。`hc next` 读它 |
+| `knowledge/training/hr-zones.json`　`bodyweight-factors.json` | 心率区间、自重动作的体重系数 |
+| `knowledge/nutrition/dish-pool.json` | 食物骰子的通用候选池（只存分档，不存热量克数）|
+| `knowledge/nutrition/purine-reference.json` | 嘌呤实测值（USDA/ODS），**分档只以它为准** |
+| `knowledge/nutrition/dish-composition.json`　`nutrition-reference.json` | 菜品配比表、食材营养（USDA，熟重口径）|
+| `knowledge/library/` | **你自己的零散资料（不进版本库）** —— 见其 `README.md` 和 `INDEX.md` |
+| `knowledge/<某某知识库>/` | **整套现成的资料库**，保持原样丢在根上（不进版本库）|
+
+> `knowledge/` 根目录是**白名单**：只有上面五个区、`library/` 和 `README.md`
+> 会进版本库，别的一律被 `.gitignore` 忽略。所以整套资料丢在根上是安全的 ——
+> 放错位置的后果是「被忽略」，不是「被公开提交」。
+>
+> **文件格式要不要装依赖**（PDF 要 poppler，docx/xlsx 不用装）见
+> `knowledge/library/README.md`。
 
 ### `reports/` —— 生成物（**不进版本库**）
 
@@ -114,7 +114,7 @@
 > **`source` 是参考字段，不强制填。** 但填了的话：
 > **不同 `source` 的围度读数不要放进同一条趋势线逐点比较** ——
 > 换测量者相当于换了把尺，能差 1–3 cm。缺 `source` 时按「来源不明」处理，
-> 同样别拿去和自测值逐点比。测量方法见 `knowledge/measurement-protocol.md`。
+> 同样别拿去和自测值逐点比。测量方法见 `knowledge/measurement/measurement-protocol.md`。
 
 ### 苹果健康其他指标 `data/apple-health/metrics.jsonl`
 
@@ -151,12 +151,12 @@
 
 ---
 
-## 3. 你的六类数据：分别录到哪、多久一次
+## 3. 各类数据的操作细节
 
-### ① 体重 —— Apple Health → 训记 → 自动同步
+> 「多久动一次手」在 README 的[你要自己填什么](README.md#你要自己填什么)。
+> 这一节只讲那边放不下的操作细节和坑。
 
-**你什么都不用做。** 后台自动同步已安装，每 3 小时跑一次，
-体重走的是范围查询，一次请求就拿全，很快。
+### ① 体重
 
 - 落地位置：`data/body/YYYY.jsonl`，`type: "weight"`
 - 核对：`./scripts/hc status` 会显示「体重数据最新到 X」
@@ -166,10 +166,7 @@
 > 判断永远看 7 日均线，不看单日 —— 日间波动可以轻松到 ±1.8 kg 这个量级，
 > 拿单日读数做判断会得出垃圾结论。
 
-### ② 量体（个人测量）—— 你唯一需要每周动手的事
-
-如果打算把腰围当作主指标（新手期同时增肌时，它比体重更能反映腹部脂肪），
-这一项通常是最缺数据的。三条路，选一条固定下来就行：
+### ② 量体（围度）—— 三条路选一条
 
 | 方式 | 怎么做 | 到达位置 |
 |---|---|---|
@@ -177,29 +174,21 @@
 | **B. Apple Health** | 健康 → 身体测量 → 腰围 | 下次 `hc import-health` 时进来 |
 | **C. 直接跟助手说** | 「今天腰围 90」 | 助手写进 `data/body/YYYY.jsonl` |
 
-**测量方法固定下来才有意义**：晨起空腹、脐水平、软尺贴皮不勒紧、呼气末读数。
-自己按固定方法测的一致性比体检机构高得多 —— 不同机构之间位置和松紧未必一致，
-混在一起看趋势价值有限。
-
-**频率：每周一次，固定同一天。**
-
 > 目前没有 `hc body add` 这样的命令，本地录入只能走上面 A/B/C。
 > 需要的话可以加一个，说一声就行。
 
-### ③ 体检报告 —— PDF 丢进目录，说一句话
+### ③ 体检报告
 
 ```bash
 cp ~/Downloads/体检报告.pdf profile/medical/2026-11-15-体检.pdf
 ```
 
-**文件名必须带日期**，助手靠它排序和判断哪份最新。然后说：
+文件名带日期之后，跟助手说：
 
 > 我放了一份新的体检报告在 profile/medical/，解析一下，和上一次逐项对比。
 
 助手会做三件事：把异常项和历史对比、把围度等结构化数值写进 `data/body/`
 （`source: "medical_report"`）、更新 `profile/personal-context.md` 的病史章节。
-
-**频率：每次体检后立刻做，别攒。**
 
 > 体检项目往往不连续（入职体检、专项体检覆盖的项目都不同）。
 > 让助手对比历次报告时，它会明确指出**哪些异常项这次根本没复测**。
@@ -246,7 +235,7 @@ cp ~/Downloads/体检报告.pdf profile/medical/2026-11-15-体检.pdf
 **记录口径：记手上的力 = 标称重量 ÷ 传动比。** 传动比一台机器测一次就够，
 最省事的办法是数行程（手移动的距离 ÷ 配重片上升的距离）。
 完整方法、其他不可比的坑（史密斯杆重、单侧、辅助配重）见
-**`knowledge/load-measurement.md`**。
+**`knowledge/measurement/load-measurement.md`**。
 
 **已经混过口径的不用回头改原始数据** —— `hc calib` 会在读取时折算，见下。
 
@@ -291,15 +280,10 @@ hc calib list     # 看现有规则
 3. **不要把器械写进动作名。** `面拉（龙门2:1）` 会把同一个动作拆成两条曲线，
    纵向进步就永远看不出来了。归一化才是对的做法
 
-### ⑤ 饮酒 —— 只能走 Apple Health，需要你每月导一次
+### ⑤ 饮酒与苹果健康导入
 
-饮酒记录**不经过训记**，只有苹果健康有。而苹果健康的数据需要**手动导出**，
-这是整套流程里唯一真正需要你定期操作的环节。
-
-**iPhone 操作**：健康 app → 右上角头像 → 最下方「导出所有健康数据」→
-生成 `导出.zip` → 隔空投送到 Mac。
-
-**然后**：
+饮酒记录**不经过训记**，只有苹果健康有 —— 导出步骤见
+[README](README.md#你要自己填什么)。命令的两种用法：
 
 ```bash
 ./scripts/hc import-health ~/Downloads/导出.zip --dry-run   # 先看解析结果
@@ -313,7 +297,7 @@ hc calib list     # 看现有规则
 | 体重 / 体脂 / 腰围 | `data/body/YYYY.jsonl` |
 | 饮酒 · 步数 · 睡眠 · 静息心率 · HRV · 饮水 · 运动分钟 | `data/apple-health/metrics.jsonl` |
 
-**频率：每月一次。** 导出文件较大，只想要增量就加 `--since 2026-08-01`。
+导出文件较大，只想要增量就加 `--since 2026-08-01`。
 重复导入安全 —— 去重键是 `(date, metric)`，只会覆盖不会翻倍。
 
 > 导出的 zip 建议也放进 `profile/`（不进版本库），保留最近一两份，旧的可以删。
@@ -399,17 +383,7 @@ hc setup --show       # 只列「什么数据填在哪」，不进问答
 
 ---
 
-## 6. 三条红线
-
-1. **不要把 `.env` 里的训记 key 打印到对话、日志或报告里。**
-2. **不要把 `data/`、`profile/`、`knowledge/library/` 提交到版本库。**
-   已在 `.gitignore` 里，别手动 `git add -f`。
-3. **不要用 `hc sync --force` 重抓训练历史** —— 30 秒/天限频，一年要 3 小时。
-   要重算用 `hc rebuild`。
-
----
-
-## 7. 教练工作日志 `profile/coach-journal/`
+## 6. 教练工作日志 `profile/coach-journal/`
 
 **这一节和前面六节的性质完全不同。** 前面讲的都是事实：体重是称出来的，
 吨位是算出来的。这一节讲的是助手随手记的笔记 —— 它天然不可靠，
@@ -469,7 +443,7 @@ hc setup --show       # 只列「什么数据填在哪」，不进问答
 
 ---
 
-## 8. 食物骰子 `hc dice`
+## 7. 食物骰子 `hc dice`
 
 解决的是「今天吃什么」这个每天要做一遍、做完还不满意的决定。
 
@@ -530,7 +504,7 @@ hc setup --show       # 只列「什么数据填在哪」，不进问答
 
 ### 嘌呤分档有实测依据，不是拍脑袋
 
-`knowledge/purine-reference.json` —— 来自 **USDA/ODS-NIH Purine Database
+`knowledge/nutrition/purine-reference.json` —— 来自 **USDA/ODS-NIH Purine Database
 Release 2.0（2025）**，462 种食物的实测 mg/100 g。菜品池的 `purine` 列按它推。
 
 建这张表是因为嘌呤**反直觉**。红黄绿灯里「油、糖、精制碳水」凭常识判断误差不大，
@@ -566,7 +540,7 @@ Release 2.0（2025）**，462 种食物的实测 mg/100 g。菜品池的 `purine
 ## 附：本机的实际状态与个人化约定
 
 数据条数、覆盖率、身高等**只属于你自己**的记录，写在 `profile/data-notes.md`
-（不进版本库）。这份 DATA.md 是通用手册，任何人 clone 下来都能直接用。
+（不进版本库）。这份 data-map.md 是通用手册，任何人 clone 下来都能直接用。
 
 随时查当前状态：
 

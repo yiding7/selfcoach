@@ -841,7 +841,7 @@ def cmd_persona(args) -> int:
         except ValueError as e:
             print(f"❌ {e}")
             return 1
-        print(f"✅ 教练语气 → {persona.label(slug)}（knowledge/personas/{slug}.md）")
+        print(f"✅ 教练语气 → {persona.label(slug)}（knowledge/coach/personas/{slug}.md）")
         print("   下次对话生效。核心人格不变 —— 换的只是措辞，不是规则。")
         return 0
     if args.show:
@@ -1216,8 +1216,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     pa = sub.add_parser(
         "persona", help="教练语气（四选一，只换措辞不换规则）",
-        description="核心人格在 knowledge/persona.md，不可选；"
-                    "这里选的是语气层 knowledge/personas/<语气>.md。")
+        description="核心人格在 knowledge/coach/persona.md，不可选；"
+                    "这里选的是语气层 knowledge/coach/personas/<语气>.md。")
     pa.add_argument("--set", metavar="语气",
                     help="切换语气，中文名或 slug 都行："
                          + " / ".join(f"{n}({s})" for s, (n, _) in _pa.TONES.items()))
@@ -1300,7 +1300,7 @@ def build_parser() -> argparse.ArgumentParser:
     da.add_argument("--name", required=True)
     da.add_argument("--tier", required=True, choices=list(_dc.TIERS))
     da.add_argument("--purine", required=True, choices=list(_dc.PURINES),
-                    help="分档见 knowledge/purine-reference.json，别凭印象填")
+                    help="分档见 knowledge/nutrition/purine-reference.json，别凭印象填")
     da.add_argument("--protein", required=True, choices=list(_dc.PROTEINS))
     da.add_argument("--cuisine", help="中餐 / 意大利 / 墨西哥 ...")
     da.add_argument("--effort", choices=list(_dc.EFFORTS), default="中等")

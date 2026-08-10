@@ -43,7 +43,7 @@ from ..patterns import family_of, pattern_note, pattern_of
 from .compare import Delta
 from .metrics import MovementStats, SessionStats
 
-BALANCE_PATH = KNOWLEDGE_DIR / "pattern-balance.json"
+BALANCE_PATH = KNOWLEDGE_DIR / "movements" / "pattern-balance.json"
 
 CONFIDENCE_ORDER = {"none": 0, "group": 1, "pattern": 2, "variant": 3, "exact": 4}
 CONFIDENCE_LABEL = {

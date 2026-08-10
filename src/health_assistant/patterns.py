@@ -18,7 +18,7 @@ from functools import lru_cache
 from .config import KNOWLEDGE_DIR
 from .taxonomy import classify_movement
 
-PATTERNS_PATH = KNOWLEDGE_DIR / "movement-patterns.json"
+PATTERNS_PATH = KNOWLEDGE_DIR / "movements" / "movement-patterns.json"
 
 
 @lru_cache(maxsize=1)

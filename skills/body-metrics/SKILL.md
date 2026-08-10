@@ -38,7 +38,7 @@ license: MIT
 
 ## 围度：先看测量规程
 
-**`knowledge/measurement-protocol.md`** 是围度测量的唯一真相源：量在哪、怎么读数、
+**`knowledge/measurement/measurement-protocol.md`** 是围度测量的唯一真相源：量在哪、怎么读数、
 腰高比和 Navy 体脂估算怎么算、常见误差源有多大。用户问「腰围量哪儿」
 「体脂怎么估」一律照它答，不要自己临场编方法。
 
@@ -55,7 +55,7 @@ license: MIT
 腰围的字段名是 **`weist`**、臀围是 **`bot`**（训记的历史拼写）。
 不要"修正"成 `waist` / `hip` —— 改了写回时会对不上字段，
 而且 `hip` 已经被**胯围**占用了（胯围在髂嵴，比臀围高，是另一个数）。
-完整的 `type` 取值表见 `DATA.md`。
+完整的 `type` 取值表见 `data-map.md`。
 
 ## 平台期
 

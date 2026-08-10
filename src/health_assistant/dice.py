@@ -50,9 +50,9 @@
 
 ## 存储
 
-- 候选池：`knowledge/dish-pool.json`（通用，进版本库）
+- 候选池：`knowledge/nutrition/dish-pool.json`（通用，进版本库）
            + `profile/dish-pool.local.json`（个人增删改，不进版本库，同名覆盖）
-- 嘌呤分档：`knowledge/purine-reference.json`（USDA/ODS 实测值，别凭印象改）
+- 嘌呤分档：`knowledge/nutrition/purine-reference.json`（USDA/ODS 实测值，别凭印象改）
 - 摇过什么：`data/dice.jsonl`，只追加。额度和「最近摇过」都是从这里回放出来的。
 
 种子只在**同一份池子 + 同一段历史**下可复现：摇完写了日志，历史就变了，
@@ -74,7 +74,7 @@ from .config import DATA_DIR, KNOWLEDGE_DIR, PROFILE_DIR, PROFILE_PATH
 
 TIERS = ("绿", "黄", "红")
 # 「极高」是 2026-08 新增的一档。只有内脏和沙丁鱼/凤尾鱼那一类到得了，
-# 见 knowledge/purine-reference.json —— 200 和 550 mg/100g 的实际代价差太远，
+# 见 knowledge/nutrition/purine-reference.json —— 200 和 550 mg/100g 的实际代价差太远，
 # 混在同一档里骰子就没法只拦真正危险的那一类。
 PURINES = ("低", "中", "高", "极高")
 PROTEINS = ("高", "中", "低")
@@ -99,8 +99,8 @@ FLAGS = (
 
 TIER_LABEL = {"绿": "绿灯", "黄": "黄灯", "红": "红灯"}
 
-POOL_PATH = KNOWLEDGE_DIR / "dish-pool.json"
-PURINE_PATH = KNOWLEDGE_DIR / "purine-reference.json"
+POOL_PATH = KNOWLEDGE_DIR / "nutrition" / "dish-pool.json"
+PURINE_PATH = KNOWLEDGE_DIR / "nutrition" / "purine-reference.json"
 LOCAL_POOL_PATH = PROFILE_DIR / "dish-pool.local.json"
 LOG_PATH = DATA_DIR / "dice.jsonl"
 CONSTRAINTS_PATH = PROFILE_DIR / "health-constraints.md"
@@ -136,7 +136,7 @@ DEFAULT_PHASE = "维持"
 #
 # tier_w 和 protein_w 归阶段管（上面那张表）。这里只放和阶段无关的部分。
 
-# 嘌呤。分档依据 knowledge/purine-reference.json 的实测值，不是印象。
+# 嘌呤。分档依据 knowledge/nutrition/purine-reference.json 的实测值，不是印象。
 PURINE_W = {"低": 1.0, "中": 0.75, "高": 0.35, "极高": 0.15}
 
 # 「最近摇过」的降权。骰子最讨人厌的失败模式是连着三天给同一个答案。
@@ -250,7 +250,7 @@ def add_dish(dish: dict) -> None:
 
     local = store.read_json(LOCAL_POOL_PATH, default=None) or {
         "schema": "ha.dishpool/1",
-        "_comment": "个人候选池。同名覆盖 knowledge/dish-pool.json。不进版本库。",
+        "_comment": "个人候选池。同名覆盖 knowledge/nutrition/dish-pool.json。不进版本库。",
         "dishes": [],
     }
     kept = [x for x in local.get("dishes", []) if x.get("name") != d["name"]]

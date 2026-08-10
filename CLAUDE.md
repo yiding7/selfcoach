@@ -5,28 +5,79 @@ Python 脚本产出，模型只负责措辞。
 
 ## 开始之前必读
 
-- `knowledge/persona.md` —— 教练人格**核心**（不可选）
-- `knowledge/personas/<语气>.md` —— **语气层**，四选一。当前值见 `data/profile.json`
+- `knowledge/coach/persona.md` —— 教练人格**核心**（不可选）
+- `knowledge/coach/personas/<语气>.md` —— **语气层**，四选一。当前值见 `data/profile.json`
   的 `persona` 或跑 `./scripts/hc persona`。语气只换措辞，**不换任何结论**
-- `knowledge/safety-boundaries.md` —— 医疗边界与就医升级条件
-- `DATA.md` —— 数据地图：什么数据在哪、格式、怎么录入、多久导一次
+- `knowledge/coach/safety-boundaries.md` —— 医疗边界与就医升级条件
+- `data-map.md` —— 数据地图：什么数据在哪、格式、怎么录入、多久导一次
+
+## knowledge/ 的五个区
+
+按主题分，导航见 `knowledge/README.md`：
+
+| 目录 | 谁读 | 放什么 |
+|---|---|---|
+| `coach/` | 模型 | 人格核心、四种语气、安全边界、能力矩阵 |
+| `measurement/` | 模型 | 围度测量规程、负荷计量口径 |
+| `movements/` | 脚本 | 动作分类、动作模式、结构平衡规则 |
+| `training/` | 脚本 | 周容量参考区间、心率区间、自重系数 |
+| `nutrition/` | 脚本 | 候选池、配比表、食材营养、嘌呤实测值 |
+
+**根目录是白名单**（见 `.gitignore`）：只放行这五个区、`library/` 和 `README.md`，
+其余一律忽略。所以用户把**整套现成的知识库**丢在 `knowledge/` 根上是安全的，
+不会被误提交 —— 别去劝他挪走，也别替他拆分类。零散的单份资料才进 `library/`。
 
 ## 用户的私有知识库
 
-`knowledge/library/` 是使用者自己的专业资料（教材、课程、笔记）。不进版本库。
+用户自己的专业资料（教材、课程、笔记）在两个地方，都不进版本库：
 
-聊到营养、训练方法、有氧、恢复这类话题时，**先看 `knowledge/library/INDEX.md`**
-（存在的话），判断有没有相关资料，有就打开对应那份再回答。
+- `knowledge/<某某知识库>/` —— 整套现成的资料库，保持原样
+- `knowledge/library/` —— 零散单份，按主题分目录
+
+聊到营养、训练方法、有氧、恢复这类话题时，**先看 `knowledge/library/INDEX.md`**，
+它会指向各个资料库的索引。判断有没有相关资料，有就打开对应那份再回答。
 不要把整个目录读一遍 —— 按 INDEX 定位。
+
+当前收了一套「真理之弓的知识库」（186 份，减脂/营养/训练）：
+
+- 完整索引在 `knowledge/真理之弓的知识库/知识库索引.md`，**按它定位**
+- 要证据等级就去 `优质文献/`；小红书和视频讲义是二手转述，
+  引用时说清是哪一份，别把科普短文说成文献结论
+
+## 读用户的资料：什么要装依赖
+
+**除了 PDF，常见格式都不用装东西。** `.docx` `.xlsx` `.pptx` `.epub` 都是
+zip+XML，标准库 `zipfile` + `xml.etree` 就能抠出正文，不要去装
+`python-docx` / `openpyxl` / `pandas`。macOS 上 `textutil -convert txt -stdout`
+更省事，老式 `.doc` 只能走它。
+
+| 要装 | 场景 |
+|---|---|
+| `brew install poppler` | **PDF，不装完全读不了** |
+| — | 音频不解析，用户当备份留着 |
+
+**docx 里的图片读不到** —— 讲义类 docx 常有大量截图。摘要提到的数字在正文里
+找不着，多半就在图里；这时候说明「关键内容在图里，我读不到」，不要猜。
+
+### 什么时候才提醒用户装
+
+三个条件同时成立才打断：**① 这个问题确实需要那份资料 ② 当场读不了
+③ 没有别的能读的来源**。命中了就说清「装什么命令、这份是什么、装完解锁多少份」，
+让用户决定。三条纪律：
+
+- **不自己装** —— `brew install` 是对用户系统的改动，要他点头
+- **不在对话开头、不在扫索引时提** —— 只在真卡住的那一刻提
+- **用户说不装也要能继续** —— 明说结论少了哪份证据，或请他自己转存一份，
+  绝不假装读过
 
 ## 事实从哪来 —— 优先级链
 
 ```
-knowledge/safety-boundaries.md          医疗边界，压倒一切
-  > profile/health-constraints.md       硬约束：禁忌动作、代谢限制、忌口
-  > profile/ 的其余文件 + data/ + knowledge/    事实层
-  > knowledge/library/                  使用者信任的专业资料
-  > profile/coach-journal/              线索层，**不是事实**
+knowledge/coach/safety-boundaries.md        医疗边界，压倒一切
+  > profile/health-constraints.md           硬约束：禁忌动作、代谢限制、忌口
+  > profile/ 的其余文件 + data/ + knowledge/  事实层
+  > knowledge/library/                      使用者信任的专业资料
+  > profile/coach-journal/                  线索层，**不是事实**
   > 模型自己的通用知识
 ```
 
@@ -188,7 +239,7 @@ knowledge/safety-boundaries.md          医疗边界，压倒一切
 - **破戒额度跟着 `diet.phase` 走**（减脂 1 / 维持 2 / 增肌 4），不是常数。
   用户目标或阶段变了，`diet.phase` 要跟着改 —— 这属于「长期方案变更」，
   按五类确认流程走。额度是用户自己定的上限，超了只陈述，不说教。
-- **嘌呤分档只以 `knowledge/purine-reference.json` 为准**（USDA/ODS 实测值）。
+- **嘌呤分档只以 `knowledge/nutrition/purine-reference.json` 为准**（USDA/ODS 实测值）。
   不要凭印象说某样东西「嘌呤高」—— 那张表里有好几条是反直觉的
   （鸡胸和牛肉同档、豆腐低嘌呤、啤酒嘌呤其实很低）。
 - 摇出来的结果**只是「摇过」，不是「吃过」**。别在别处把它当成饮食记录引用。
@@ -206,7 +257,7 @@ knowledge/safety-boundaries.md          医疗边界，压倒一切
 - 不要在没有共同动作时比较两次训练的峰值负荷（器械和自由重量不可比）
 - 不要把绳索器械的大幅涨跌直接报成力量变化 —— 滑轮传动比不同，同一动作换台
   机位标称重量能差一倍。看到 `hc calib` 的预警就摆出四个选项让用户选，
-  **不要替他选一个**。口径见 `knowledge/load-measurement.md`
+  **不要替他选一个**。口径见 `knowledge/measurement/load-measurement.md`
 - 不要为了消预警去改 `data/training/` 里的原始记录 —— 折算走 `hc calib set --ratio`
 - 不要为了「试一下」去跑 `hc setup` —— 它会真的改档案、还会往 `data/body/` 写体重。
   验证交互用 `hc setup --dry-run`

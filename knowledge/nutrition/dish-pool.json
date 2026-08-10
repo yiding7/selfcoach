@@ -8,7 +8,7 @@
     "红黄绿灯、嘌呤档、蛋白密度档，这三档足够做筛选和加权。",
     "真要算热量，那是 hc summary / 营养成分表的事，不是骰子的事。",
     "",
-    "**嘌呤列以 knowledge/purine-reference.json 为准，不是凭印象排的。**",
+    "**嘌呤列以 knowledge/nutrition/purine-reference.json 为准，不是凭印象排的。**",
     "那张表来自 USDA/ODS-NIH Purine Database Release 2.0 的实测值。",
     "几个反直觉但重要的结论已经落进下面的分档：",
     "  · 鸡胸（110–129）和牛肉（114–136）、猪肉（111–131）基本一个量级，都是「中」",
