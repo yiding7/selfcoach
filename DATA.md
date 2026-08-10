@@ -66,7 +66,8 @@
 
 | 路径 | 装什么 |
 |---|---|
-| `knowledge/persona.md` | 教练人格，唯一真相源 |
+| `knowledge/persona.md` | 教练人格**核心** —— 说什么、以什么为准、什么绝对不做。不可选 |
+| `knowledge/personas/*.md` | **语气层** —— 怎么说。四选一，见 `data/profile.json` 的 `persona`。`hc persona` 看当前值，`hc setup` 或 `hc persona --set` 切换 |
 | `knowledge/dish-pool.json` | 食物骰子的通用候选池（只存分档，不存热量克数）|
 | `knowledge/safety-boundaries.md` | 医疗边界与就医升级条件 |
 | `knowledge/library/` | **你自己的专业资料库（不进版本库）** —— 见其 `README.md` |

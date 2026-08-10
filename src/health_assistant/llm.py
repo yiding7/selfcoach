@@ -26,7 +26,7 @@ import urllib.request
 
 from .config import KNOWLEDGE_DIR, load_env
 
-PERSONA_PATH = KNOWLEDGE_DIR / "persona.md"
+PERSONA_PATH = KNOWLEDGE_DIR / "persona.md"  # 保留给外部引用；组装走 persona.load()
 
 # 允许出现在叙述里、但不需要在 facts 里找到的数字：
 # 年份、月份、周数、小数点后的位数、常见序数
@@ -184,12 +184,9 @@ def narrate(facts: dict, slots: list[str] | None = None) -> dict[str, str]:
     # 没配适配器和「调了但失败了」是两回事，要让调用方能区分：
     # 前者需要告诉用户怎么配，后者只需静默退回纯数据模式。
     config()
-    try:
-        persona = PERSONA_PATH.read_text(encoding="utf-8")
-    except OSError:
-        persona = "你是一位谦和、专业、鼓励式的健身教练。"
-
-    system = persona + (
+    # 核心 + 用户选的语气层，拼装逻辑在 persona.py，缺文件也不会抛
+    from . import persona as _persona
+    system = _persona.load() + (
         "\n\n---\n\n# 当前任务\n"
         "你在为一份已经生成好的健康报告写叙述段落。\n\n"
         "**硬性要求：**\n"

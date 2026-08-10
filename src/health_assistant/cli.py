@@ -654,6 +654,26 @@ def cmd_inject(args) -> int:
     return 0
 
 
+def cmd_persona(args) -> int:
+    """看/换教练语气。不带参数是纯读操作，放白名单安全。"""
+    from . import persona
+
+    if args.set:
+        try:
+            slug = persona.set_tone(args.set)
+        except ValueError as e:
+            print(f"❌ {e}")
+            return 1
+        print(f"✅ 教练语气 → {persona.label(slug)}（knowledge/personas/{slug}.md）")
+        print("   下次对话生效。核心人格不变 —— 换的只是措辞，不是规则。")
+        return 0
+    if args.show:
+        print(persona.load())
+        return 0
+    print(persona.render_list())
+    return 0
+
+
 def cmd_journal(args) -> int:
     """教练工作日志。读操作永远不写盘，所以放进权限白名单是安全的。"""
     from . import journal
@@ -997,6 +1017,19 @@ def build_parser() -> argparse.ArgumentParser:
                     help="用 .env 里配的 LLM 适配器自动写叙述（cron 无人值守用；"
                          "在 agent 宿主里不需要）")
     rp.set_defaults(func=cmd_report)
+
+    from . import persona as _pa
+
+    pa = sub.add_parser(
+        "persona", help="教练语气（四选一，只换措辞不换规则）",
+        description="核心人格在 knowledge/persona.md，不可选；"
+                    "这里选的是语气层 knowledge/personas/<语气>.md。")
+    pa.add_argument("--set", metavar="语气",
+                    help="切换语气，中文名或 slug 都行："
+                         + " / ".join(f"{n}({s})" for s, (n, _) in _pa.TONES.items()))
+    pa.add_argument("--show", action="store_true",
+                    help="打印拼装后的完整人格（核心 + 当前语气）")
+    pa.set_defaults(func=cmd_persona)
 
     # journal 模块零依赖、无副作用，可以在这里直接导入，省得把词表抄一遍
     from . import journal as _jr

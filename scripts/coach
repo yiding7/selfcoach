@@ -71,8 +71,20 @@ if [ -n "$CLAUDE_BIN" ]; then
   #
   # 注入的块带 <coach-journal> 哨兵，agent 看到它就知道不用再读一遍。
   JOURNAL_BRIEF="$("$HERE/scripts/hc" journal --brief 2>/dev/null || true)"
-  if [ -n "$JOURNAL_BRIEF" ]; then
-    "$CLAUDE_BIN" --append-system-prompt "$JOURNAL_BRIEF" "$@" || true
+
+  # 同理注入当前语气 —— 但只注一行指路，不注全文。
+  # 语气文件几百行，塞进 system prompt 是浪费；agent 读完 persona.md 自然会
+  # 顺着这一行去打开对应那份。这里解决的只是「它不知道选了哪个」。
+  TONE="$("$HERE/scripts/hc" persona 2>/dev/null | sed -n 's/^  当前：\([^　]*\).*/\1/p')"
+  if [ -n "$TONE" ]; then
+    TONE_HINT="当前教练语气：${TONE}。读完 knowledge/persona.md 后，接着读它指向的 knowledge/personas/ 里对应那一份。语气只改措辞，不改结论。"
+  else
+    TONE_HINT=""
+  fi
+
+  PREAMBLE="$(printf '%s\n\n%s' "$JOURNAL_BRIEF" "$TONE_HINT")"
+  if [ -n "$JOURNAL_BRIEF" ] || [ -n "$TONE_HINT" ]; then
+    "$CLAUDE_BIN" --append-system-prompt "$PREAMBLE" "$@" || true
   else
     "$CLAUDE_BIN" "$@" || true
   fi

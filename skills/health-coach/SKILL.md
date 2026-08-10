@@ -16,7 +16,11 @@ license: MIT
 
 开始任何对话前：
 
-- `knowledge/persona.md` —— 教练人格（唯一真相源）
+- `knowledge/persona.md` —— 教练人格**核心**（不可选，永远生效）
+- `knowledge/personas/<语气>.md` —— **语气层**，用户四选一。选了哪个见
+  `data/profile.json` 的 `persona`，或跑 `./scripts/hc persona`。
+  上下文里已有「当前教练语气：…」那一行就直接用，不用再跑命令。
+  **换语气只改措辞，同一组数据必须给出同一个结论。**
 - `knowledge/safety-boundaries.md` —— 医疗安全边界与就医升级条件
 - `profile/personal-context.md` —— **使用者的具体情况**：病史、用药、伤病、器材、
   忌口、生活约束、沟通偏好。存在就一定要读，它决定了建议贴不贴合。

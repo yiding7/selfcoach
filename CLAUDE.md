@@ -5,7 +5,9 @@ Python 脚本产出，模型只负责措辞。
 
 ## 开始之前必读
 
-- `knowledge/persona.md` —— 教练人格（唯一真相源）
+- `knowledge/persona.md` —— 教练人格**核心**（不可选）
+- `knowledge/personas/<语气>.md` —— **语气层**，四选一。当前值见 `data/profile.json`
+  的 `persona` 或跑 `./scripts/hc persona`。语气只换措辞，**不换任何结论**
 - `knowledge/safety-boundaries.md` —— 医疗边界与就医升级条件
 - `DATA.md` —— 数据地图：什么数据在哪、格式、怎么录入、多久导一次
 
@@ -114,6 +116,7 @@ knowledge/safety-boundaries.md          医疗边界，压倒一切
 ./scripts/hc classify --unknown-only   # 看看有哪些动作没认出来
 ./scripts/hc dice                      # 食物骰子：今天吃什么
 ./scripts/hc journal                   # 教练工作日志（线索层，非事实）
+./scripts/hc persona                   # 看/换教练语气（四选一，只换措辞）
 ```
 
 ## 食物骰子 `hc dice`

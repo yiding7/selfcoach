@@ -34,6 +34,7 @@ import datetime as dt
 import re
 
 from . import dice, store
+from . import persona as _persona
 from .config import PROFILE_DIR, PROFILE_PATH
 
 CONSTRAINTS_PATH = PROFILE_DIR / "health-constraints.md"
@@ -43,6 +44,8 @@ DATA_MAP = [
     ("性别 / 出生年 / 身高", "data/profile.json", "hc setup", "算基础代谢和心率区间"),
     ("饮食阶段（减脂/维持/增肌）", "data/profile.json → diet.phase", "hc setup",
      "决定目标热量、破戒额度、红黄绿灯权重"),
+    ("教练语气（四选一）", "data/profile.json → persona", "hc setup / hc persona --set",
+     "只换措辞，不换规则；核心人格在 knowledge/persona.md，选不了"),
     ("忌口与过敏", "profile/health-constraints.md → ## 忌口", "hc setup", "骰子的硬墙，永不放行"),
     ("医学禁忌（由异常指标推）", "data/profile.json → diet.medical_blocks", "hc setup",
      "骰子的第二堵硬墙，指标恢复要删"),
@@ -210,11 +213,22 @@ def run(*, today: dt.date | None = None) -> int:
     likes = _ask_list("爱吃什么？", list(diet.get("likes") or []))
     dislikes = _ask_list("不太想吃什么？", list(diet.get("dislikes") or []))
 
+    # ⑦ 语气只换措辞，不换规则 —— 核心人格（数字纪律、安全边界、
+    #    「优点必须有数据支撑」）在 knowledge/persona.md 里，选不了。
+    print("\n⑦ 教练语气（只改怎么说，不改说什么）")
+    for slug, (name, desc) in _persona.TONES.items():
+        print(f"   {name}　{desc}")
+    tone_label = _ask("语气", _persona.label(_persona.current()),
+                      choices=tuple(n for n, _ in _persona.TONES.values()))
+    tone = _persona.normalize(tone_label) or _persona.DEFAULT_TONE
+
     diet.update({"phase": phase, "medical_blocks": blocks,
                  "likes": likes, "dislikes": dislikes,
                  # 忌口的唯一真相源是 md。这里清空，杜绝第二份拷贝。
                  "avoid": []})
     p["diet"] = diet
+    p["persona"] = tone
+    p.setdefault("_persona_comment", _persona.PROFILE_FIELD_COMMENT)
     if sex:
         p["sex"] = sex
     if birth.isdigit():
@@ -262,6 +276,13 @@ def render_checklist() -> list[str]:
     lines.append(f"  {mark(not phase_defaulted)} 饮食阶段：{phase}"
                  + ("（默认值，没设）" if phase_defaulted else "")
                  + "　← diet.phase")
+    tone = _persona.current()
+    lines.append(f"  {mark(p.get('persona') is not None)} 教练语气："
+                 f"{_persona.label(tone)}"
+                 + ("" if p.get("persona") is not None else "（默认值，没设）")
+                 + "　← persona")
+    for w in _persona.warnings():
+        lines.append(f"  ⚠️  {w}")
 
     # ⚠️ 这一行**不能**只看文件在不在。忌口这一层最危险的失败模式是静默失效：
     # 文件还在、格式被改坏、解析返回空 —— 骰子照常跑，只是不再过滤了。
