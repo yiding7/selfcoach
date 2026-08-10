@@ -214,3 +214,194 @@ class TestOnlyTheAvoidSectionIsTouched:
         assert not changed
         assert paths["constraints"].read_text(encoding="utf-8") == text
         assert "没找到「## 忌口」小节" in msg
+
+
+class TestListSeparators:
+    """自由输入项的分隔符要宽 —— 用户脑子里想的是「把几样东西列出来」，
+    不该让他还要记住这个工具认哪个符号。
+    """
+
+    @pytest.mark.parametrize("raw", [
+        "青椒 茄子 海带",
+        "青椒、茄子、海带",
+        "青椒，茄子，海带",
+        "青椒,茄子,海带",
+        "青椒/茄子/海带",
+        "青椒\\茄子\\海带",
+        "青椒_茄子_海带",
+        "青椒-茄子-海带",
+        "青椒;茄子;海带",
+        "青椒；茄子；海带",
+        "青椒|茄子|海带",
+        "青椒 、 茄子,,海带",          # 混用 + 多余空格
+        "  青椒 茄子 海带  ",          # 首尾空白
+    ])
+    def test_all_common_separators_work(self, raw):
+        assert setup_mod._split_items(raw) == ["青椒", "茄子", "海带"]
+
+    def test_empty_input_yields_empty_list(self):
+        assert setup_mod._split_items("   ") == []
+
+
+class TestNumberedChoice:
+    OPTIONS = [("减脂", "有缺口"), ("维持", "持平"), ("增肌", "盈余")]
+
+    def _pick(self, monkeypatch, typed, default="减脂"):
+        answers = iter(typed)
+        monkeypatch.setattr("builtins.input", lambda _: next(answers))
+        return setup_mod._ask_choice("阶段", self.OPTIONS, default)
+
+    def test_number_selects_the_value(self, monkeypatch):
+        assert self._pick(monkeypatch, ["2"]) == "维持"
+
+    def test_enter_keeps_the_default(self, monkeypatch):
+        assert self._pick(monkeypatch, [""]) == "减脂"
+
+    def test_typing_the_value_still_works(self, monkeypatch):
+        """改成编号是为了省事，不是为了禁止打字。"""
+        assert self._pick(monkeypatch, ["增肌"]) == "增肌"
+
+    def test_out_of_range_reprompts_instead_of_guessing(self, monkeypatch):
+        assert self._pick(monkeypatch, ["9", "0", "3"]) == "增肌"
+
+
+class TestNumberedMulti:
+    FLAGS = ("内脏为主", "浓肉汤为主", "高嘌呤海产", "酒精", "高果糖",
+             "油炸", "加工肉", "高盐腌制", "生食", "第十项", "第十一项")
+
+    def _pick(self, monkeypatch, typed, current=()):
+        answers = iter(typed)
+        monkeypatch.setattr("builtins.input", lambda _: next(answers))
+        return setup_mod._ask_multi("禁忌", self.FLAGS, list(current))
+
+    def test_picks_by_number_in_the_order_given(self, monkeypatch):
+        assert self._pick(monkeypatch, ["3 1 5"]) == ["高嘌呤海产", "内脏为主", "高果糖"]
+
+    def test_two_digit_numbers_need_a_separator(self, monkeypatch):
+        """超过 9 项时 `112` 是「1,12」还是「11,2」没法判断 —— 宁可报错也不猜。"""
+        assert self._pick(monkeypatch, ["11 2"]) == ["第十一项", "浓肉汤为主"]
+
+    def test_enter_keeps_current(self, monkeypatch):
+        assert self._pick(monkeypatch, [""], current=["酒精"]) == ["酒精"]
+
+    def test_clear_empties_it(self, monkeypatch):
+        assert self._pick(monkeypatch, ["清空"], current=["酒精"]) == []
+
+    def test_duplicates_collapse(self, monkeypatch):
+        assert self._pick(monkeypatch, ["1 1 1"]) == ["内脏为主"]
+
+    def test_garbage_reprompts(self, monkeypatch):
+        assert self._pick(monkeypatch, ["99", "内脏", "2"]) == ["浓肉汤为主"]
+
+
+class TestUnitsAreNotGuessed:
+    """单位只支持 cm / kg。猜单位是造假数据最快的一条路。"""
+
+    def _height(self, monkeypatch, typed):
+        answers = iter(typed)
+        monkeypatch.setattr("builtins.input", lambda _: next(answers))
+        return setup_mod._ask_height({})
+
+    def test_accepts_a_plain_number(self, monkeypatch):
+        assert self._height(monkeypatch, ["179"]) == 179.0
+
+    def test_strips_a_trailing_unit_word(self, monkeypatch):
+        assert self._height(monkeypatch, ["179cm"]) == 179.0
+        assert self._height(monkeypatch, ["179 厘米"]) == 179.0
+
+    def test_metres_are_rejected_not_converted(self, monkeypatch):
+        """1.79 不该被悄悄当成 179 —— 那是替用户做决定。"""
+        assert self._height(monkeypatch, ["1.79", "179"]) == 179.0
+
+    def test_blank_skips(self, monkeypatch):
+        assert self._height(monkeypatch, [""]) is None
+
+
+class TestWeightDoesNotDoubleCount:
+    """`rolling_weight` 是按**记录条数**开窗的（最近 7 条），不是按天。
+    同一天两条会让那天在窗口里占两格，7 日趋势实际只覆盖 6 天 ——
+    目标热量和自重动作的容量都会跟着偏。
+    """
+
+    def _ask(self, monkeypatch, existing, typed=("81.2",)):
+        import datetime as dt
+        monkeypatch.setattr(setup_mod.store, "load_body", lambda **kw: existing)
+        answers = iter(typed)
+        monkeypatch.setattr("builtins.input", lambda _: next(answers))
+        return setup_mod._ask_weight(dt.date(2026, 8, 10))
+
+    def rec(self, date, value, source="xunji"):
+        return {"date": date, "value": value, "type": "weight",
+                "source": source, "id": f"{source}:weight:{date}"}
+
+    def test_refuses_to_add_a_second_record_for_today(self, monkeypatch):
+        out = self._ask(monkeypatch, [self.rec("2026-08-10", 81.8)])
+        assert out is None, "今天已经有记录了还要再写一条"
+
+    def test_writes_when_today_has_none(self, monkeypatch):
+        out = self._ask(monkeypatch, [self.rec("2026-08-09", 81.8)])
+        assert out is not None
+        assert out["date"] == "2026-08-10" and out["value"] == 81.2
+        assert out["source"] == "self"
+
+    def test_kg_suffix_is_stripped(self, monkeypatch):
+        assert self._ask(monkeypatch, [], typed=("81.2kg",))["value"] == 81.2
+        assert self._ask(monkeypatch, [], typed=("81.2 公斤",))["value"] == 81.2
+
+    def test_out_of_range_reprompts_instead_of_converting(self, monkeypatch):
+        """填了斤（160）或磅会落在合理区间里，工具没法分辨 —— 那是用户的责任。
+        这里只锁明显不可能的值：重问，绝不替他换算。
+        """
+        assert self._ask(monkeypatch, [], typed=("8", "81.2"))["value"] == 81.2
+        assert self._ask(monkeypatch, [], typed=("500", "81.2"))["value"] == 81.2
+
+
+class TestMedicalBlocksAreNotSilentlyDropped:
+    """医学禁忌是硬墙。改成编号多选后，非标准标签不能因为「回车保持不变」
+    就被悄悄删掉 —— 旧的自由输入路径至少还会打一句「忽略了未知标签」。
+    """
+
+    def test_enter_preserves_entries_outside_the_standard_flags(self, monkeypatch):
+        from health_assistant import dice
+        monkeypatch.setattr("builtins.input", lambda _: "")
+        current = ["酒精", "高胆固醇"]          # 第二项不在 dice.FLAGS 里
+        assert "高胆固醇" not in dice.FLAGS
+        out = setup_mod._ask_multi("禁忌", dice.FLAGS, current)
+        assert out == current, "按回车「保持不变」把非标准标签删掉了"
+
+    def test_reselecting_does_drop_them(self, monkeypatch):
+        """重新选择时丢弃是预期行为 —— 但调用方必须把这件事说出来。"""
+        from health_assistant import dice
+        monkeypatch.setattr("builtins.input", lambda _: "1")
+        out = setup_mod._ask_multi("禁忌", dice.FLAGS, ["酒精", "高胆固醇"])
+        assert out == [dice.FLAGS[0]]
+
+
+class TestActualFrequencyDenominator:
+    """分母必须是**实际有记录的跨度**，不是固定的 8 周。"""
+
+    def _run(self, monkeypatch, dates):
+        import datetime as dt
+        monkeypatch.setattr(setup_mod.store, "load_sessions",
+                            lambda **kw: [{"date": d} for d in dates])
+        return setup_mod.actual_days_per_week(today=dt.date(2026, 8, 10))
+
+    def test_three_weeks_of_four_per_week_reads_as_four(self, monkeypatch):
+        """缺陷：12 天 / 固定 8 周 = 1.5 次/周 —— 一个完全达标的人被数落。"""
+        import datetime as dt
+        start = dt.date(2026, 7, 21)
+        dates = []
+        for w in range(3):
+            for d in (0, 1, 3, 5):
+                dates.append((start + dt.timedelta(weeks=w, days=d)).isoformat())
+        rate, weeks = self._run(monkeypatch, dates)
+        assert 3.5 <= rate <= 4.5, f"算出来 {rate} 次/周，实际是 4"
+        assert weeks < 4
+
+    def test_returns_none_without_data(self, monkeypatch):
+        assert self._run(monkeypatch, []) is None
+
+    def test_a_single_day_does_not_blow_up_the_rate(self, monkeypatch):
+        """只有一天记录时分母至少按一周算，否则会除出一个荒唐的大数。"""
+        rate, weeks = self._run(monkeypatch, ["2026-08-10"])
+        assert rate <= 1.0 and weeks >= 1.0

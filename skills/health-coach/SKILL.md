@@ -94,6 +94,7 @@ license: MIT
 | 体重体脂围度 | `body-metrics` |
 | 从训记同步数据 | `xunji-sync` → `hc sync` |
 | 有氧强度合不合理 | `hc cardio` |
+| 某个动作重量突然翻倍/减半 | `hc calib` —— 多半是换了机位，不是力量变化 |
 | 导入苹果健康数据 | `hc import-health <导出.zip>` |
 | 数据是不是最新的 | `hc status`（不联网）|
 | 上次聊到哪了 / 有什么没闭合 | `hc journal`（不联网）|
@@ -115,6 +116,7 @@ license: MIT
 ./scripts/hc compare             # 四视角对比
 ./scripts/hc next 胸              # 下次训练建议
 ./scripts/hc cardio              # 有氧与心率区间
+./scripts/hc calib               # 负荷口径：换机位造成的重量跳变
 ./scripts/hc report weekly       # 出周报
 ```
 

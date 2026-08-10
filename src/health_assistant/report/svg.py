@@ -339,14 +339,24 @@ def donut(parts: list[tuple[str, float]], css_for, *, size: int = 150,
             + "".join(out) + "</svg>")
 
 
+def _weekday_labels(plan) -> list[str]:
+    from ..plan import weekday_labels
+    return weekday_labels(plan=plan)
+
+
 def calendar_heatmap(day_values: dict[str, float], start: str, end: str, *,
                      cell: int = 12, gap: int = 3, buckets: int = 5) -> str:
     """GitHub 风格的日历热力图。key 是 YYYY-MM-DD。"""
     import datetime as dt
 
+    from ..plan import current as _plan_current
+    from ..plan import week_start_of
+
+    plan = _plan_current()
     d0, d1 = dt.date.fromisoformat(start), dt.date.fromisoformat(end)
-    # 从所在周的周一开始，列才能对齐
-    d0 -= dt.timedelta(days=d0.weekday())
+    # 从所在周的第一天开始，列才能对齐。周一还是周日由全局配置决定 ——
+    # 热力图的行顺序也要跟着转，否则图上的「第一行」和周报的「本周」不是一回事。
+    d0 = week_start_of(d0, plan=plan)
     weeks = ((d1 - d0).days // 7) + 1
     width = weeks * (cell + gap) + 34
     height = 7 * (cell + gap) + 22
@@ -354,8 +364,11 @@ def calendar_heatmap(day_values: dict[str, float], start: str, end: str, *,
     known = [v for v in day_values.values() if v]
     vmax = max(known) if known else 1
 
+    # 行标按周起始日轮转，隔行显示（挤不下七个）
+    labels = [wd if i % 2 == 0 else "" for i, wd in
+              enumerate(_weekday_labels(plan))]
     out = []
-    for i, wd in enumerate(["一", "", "三", "", "五", "", "日"]):
+    for i, wd in enumerate(labels):
         if wd:
             out.append(f'<text class="tick" x="18" '
                        f'y="{18 + i * (cell + gap) + cell - 2}" '
@@ -365,7 +378,7 @@ def calendar_heatmap(day_values: dict[str, float], start: str, end: str, *,
     d = d0
     while d <= d1:
         col = (d - d0).days // 7
-        row = d.weekday()
+        row = (d.weekday() - plan.week_start_index) % 7
         x = 26 + col * (cell + gap)
         y = 14 + row * (cell + gap)
         v = day_values.get(d.isoformat())

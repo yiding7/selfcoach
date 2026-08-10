@@ -49,11 +49,33 @@ def increment_for(name: str) -> float:
                                                _config().get("increments", {}).get("default", 2.5))
 
 
+FREE_WEIGHT_EQUIPMENT = ("barbell", "dumbbell")
+
+
+def is_compound(name: str) -> bool:
+    """复合动作判定。
+
+    两条规则：
+      1. 深蹲/硬拉/卧推/推举/引体 —— 什么器械都算复合
+      2. 划船/臀冲/上凳这类 —— **只在自由重量上**算复合
+
+    第二条不能省。用户的口径是「自由重量复合 6-10，器械/绳索/孤立 8-12」，
+    而「划船」器械和自由重量都在用：杠铃划船是自由重量复合、悍马机划船是器械。
+    只把「划船」从 compound_patterns 里删掉会让杠铃划船掉进 8-12 ——
+    2026-08-10 就这么错过一次，是 code review 抓出来的。
+    """
+    cfg = _config()
+    if re.search(cfg.get("compound_patterns", "$^"), name):
+        return True
+    return bool(re.search(cfg.get("free_weight_compound_patterns", "$^"), name)
+                and equipment_of(name) in FREE_WEIGHT_EQUIPMENT)
+
+
 def rep_range(name: str) -> tuple[int, int]:
     cfg = _config()
     ranges = cfg.get("rep_ranges", {})
-    if re.search(cfg.get("compound_patterns", "$^"), name):
-        lo, hi = ranges.get("compound", [5, 8])
+    if is_compound(name):
+        lo, hi = ranges.get("compound", [6, 10])
     elif re.search("卷腹|收腹|平板支撑|抬腿|核心", name):
         lo, hi = ranges.get("core", [10, 20])
     else:
@@ -85,6 +107,9 @@ class MovementPrescription:
     rep_target: str
     change: str
     why: str
+    # 「建议补回」的动作是**提示**，不是处方的一部分。它的组数不计进 total_sets ——
+    # 见 prescribe_group 末尾那段注释，这是 2026-08-10 修掉的棘轮。
+    optional: bool = False
 
 
 @dataclass
@@ -93,7 +118,8 @@ class Prescription:
     based_on_date: str | None
     rationale: list[str] = field(default_factory=list)
     movements: list[MovementPrescription] = field(default_factory=list)
-    total_sets: int = 0
+    total_sets: int = 0          # 只数处方里的组，不含「可选：补回」
+    optional_sets: int = 0       # 可选提示的组数，单独报，别混进合计
     rpe_cap: float | None = None
     notes: list[str] = field(default_factory=list)
 
@@ -126,8 +152,17 @@ def weight_trend_pct_per_week(body_trend: list[tuple[str, float]],
 def prescribe_group(group: str, current: SessionStats,
                     comparison: GroupComparison | None,
                     *, weekly_sets: float | None = None,
+                    window_label: str = "最近 7 天",
                     body_trend: list[tuple[str, float]] | None = None,
                     ) -> Prescription:
+    """`weekly_sets` 是拿来和周容量地标比的组数，口径由调用方决定：
+
+    - `hc next` 传**滚动 7 天**的实际组数（恢复状态与日历怎么切无关）
+    - 周报传**本期周均**（它本来就在按周聚合）
+
+    `window_label` 只影响 note 的措辞，不影响任何判断 —— 但它必须传对，
+    否则输出里会出现「本周练了 12 组」而那个 12 其实是周均。
+    """
     rx = Prescription(group=group, based_on_date=current.date)
     ms_list = [m for m in current.movements if m.group == group and m.sets_done > 0]
     if not ms_list:
@@ -152,15 +187,15 @@ def prescribe_group(group: str, current: SessionStats,
             hold_load = True
             rx.rationale.append("OVER_MRV_HOLD")
             rx.notes.append(
-                f"本周 {group} 已经练到 {weekly_sets:.0f} 组，"
-                f"超过了常见的可恢复上限（约 {lm['mrv']} 组）。"
+                f"{window_label} {group} 已经练到 {weekly_sets:.0f} 组，"
+                f"超过了常见的可恢复上限（约 {lm['mrv']} 组/周）。"
                 f"先别加量也别加重，把这些组练扎实比堆更多组有用。")
         elif status == "under_mev" and lm:
             rx.rationale.append("UNDER_MEV")
             rx.notes.append(
-                f"本周 {group} 只练了 {weekly_sets:.0f} 组，"
-                f"低于常见的最小有效容量（约 {lm['mev']} 组）。"
-                f"下次可以多加 2 组，或者本周再安排一次 {group}。")
+                f"{window_label} {group} 只练了 {weekly_sets:.0f} 组，"
+                f"低于常见的最小有效容量（约 {lm['mev']} 组/周）。"
+                f"下次可以多加 2 组，或者这周再安排一次 {group}。")
 
     if not current.has_intensity_signal:
         rx.notes.append(
@@ -251,13 +286,25 @@ def prescribe_group(group: str, current: SessionStats,
                 why=f"上次平均每组 {avg_reps:.0f} 次，在 {lo}-{hi} 的区间内。"
                     f"这次每组多做 1 次，累积到 {hi} 次就可以加重。"))
 
-    # 掉队的动作提醒补回来
+    # ── 掉队的动作：提示，不是加量 ──────────────────────────────────────
+    #
+    # 这一段曾经是个**棘轮**：换个器械就被判成「掉队」，下次按 3 组要求补回，
+    # 而那 3 组还计进 total_sets。于是建议量只增不减 —— 拿 27 次历史背日
+    # 逐一重跑，建议组数 27/27 次 ≥ 实做组数，其中 17 次严格高出，
+    # 超出的部分**全部**来自这里（每次 +3 或 +6 组）。
+    #
+    # 修法不是删掉它 —— 「上次做了这次没做」确实值得提一句，可能是忘了。
+    # 修的是它的身份：标 optional，不计进 total_sets。
+    # 想练就练，不练也不欠着。
     if comparison:
         for name in comparison.dropped[:2]:
             rx.movements.append(MovementPrescription(
                 name=name, sets=3, load_kg=None, rep_target="按上次",
-                change="建议补回",
-                why="上一次练这个部位时做了，这次没做。如果是有意换掉就忽略。"))
+                change="可选：补回",
+                why="上一次练这个部位时做了，这次没做。如果是有意换掉就忽略 ——"
+                    "这一条不计进合计组数。",
+                optional=True))
 
-    rx.total_sets = sum(p.sets for p in rx.movements)
+    rx.total_sets = sum(p.sets for p in rx.movements if not p.optional)
+    rx.optional_sets = sum(p.sets for p in rx.movements if p.optional)
     return rx

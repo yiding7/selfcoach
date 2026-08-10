@@ -429,6 +429,12 @@ def _section_comparison(model: dict) -> str:
             extra.append(f'本次新增：{esc("、".join(c["added"]))}')
         if c["dropped"]:
             extra.append(f'本次没做：{esc("、".join(c["dropped"]))}')
+        if c.get("excluded"):
+            # 静默排除等于伪造了一个「什么都没发生」的对比。这些动作的
+            # 组数和容量仍在上面的合计里，逐动作表里却没有，必须说明原因。
+            extra.append(f'⊘ 未参与对比（负荷口径存疑）：'
+                         f'{esc("、".join(c["excluded"]))}'
+                         f'　—— 组数和容量仍计入上方合计')
         extra_html = (f'<p class="muted small">{" ｜ ".join(extra)}</p>'
                       if extra else "")
 
@@ -493,6 +499,12 @@ def _section_quality(model: dict) -> str:
                      f'{esc("、".join(q["unclassified_movements"]))}。')
     if q["volume_incomplete"]:
         items.append('部分自重动作因缺少当日体重数据，未计入总吨位。')
+    if q.get("calibrated_movements"):
+        items.append('以下动作的负荷按<b>口径规则折算</b>过，与 '
+                     '<code>data/training/</code> 和训记里的原始数字不同'
+                     '（原始记录<b>未被修改</b>）：'
+                     + esc("、".join(q["calibrated_movements"]))
+                     + '。规则见 <code>hc calib list</code>。')
     if q["meals_logged"] == 0:
         items.append('本期没有饮食记录，营养部分暂时无法分析。')
     if not items:
