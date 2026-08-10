@@ -14,7 +14,7 @@ from functools import lru_cache
 from ..config import KNOWLEDGE_DIR
 from ..taxonomy import Classification, classify_movement
 
-BW_FACTORS_PATH = KNOWLEDGE_DIR / "bodyweight-factors.json"
+BW_FACTORS_PATH = KNOWLEDGE_DIR / "training" / "bodyweight-factors.json"
 
 # Epley 公式在高次数时会明显高估。超过这个次数只作低置信度参考，不参与 PR 判定。
 E1RM_MAX_REPS = 12

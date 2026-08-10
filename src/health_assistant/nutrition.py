@@ -42,8 +42,8 @@ import datetime as dt
 from . import store
 from .config import DATA_DIR, KNOWLEDGE_DIR, PROFILE_PATH
 
-NUTRITION_PATH = KNOWLEDGE_DIR / "nutrition-reference.json"
-COMPOSITION_PATH = KNOWLEDGE_DIR / "dish-composition.json"
+NUTRITION_PATH = KNOWLEDGE_DIR / "nutrition" / "nutrition-reference.json"
+COMPOSITION_PATH = KNOWLEDGE_DIR / "nutrition" / "dish-composition.json"
 METRICS_PATH = DATA_DIR / "apple-health" / "metrics.jsonl"
 
 # 营养素顺序，和 nutrition-reference.json 的 _fields 一致

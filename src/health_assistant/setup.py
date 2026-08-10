@@ -49,7 +49,7 @@ DATA_MAP = [
     ("饮食阶段（减脂/维持/增肌）", "data/profile.json → diet.phase", "hc setup",
      "决定目标热量、破戒额度、红黄绿灯权重"),
     ("教练语气（四选一）", "data/profile.json → persona", "hc setup / hc persona --set",
-     "只换措辞，不换规则；核心人格在 knowledge/persona.md，选不了"),
+     "只换措辞，不换规则；核心人格在 knowledge/coach/persona.md，选不了"),
     ("训练计划（频率/单次时长/侧重）", "data/profile.json → training", "hc setup",
      "hc next 拿单次时长提示超没超；建议值按目标推，以你填的为准"),
     ("周起始日（周一/周日）", "data/profile.json → training.week_start", "hc setup",
@@ -509,7 +509,7 @@ def run(*, today: dt.date | None = None, dry_run: bool = False) -> int:
     dislikes = _ask_list("不太想吃什么？", list(diet.get("dislikes") or []))
 
     # ⑦ 语气只换措辞，不换规则 —— 核心人格（数字纪律、安全边界、
-    #    「优点必须有数据支撑」）在 knowledge/persona.md 里，选不了。
+    #    「优点必须有数据支撑」）在 knowledge/coach/persona.md 里，选不了。
     print("\n⑦ 教练语气（只改怎么说，不改说什么）")
     tone_label = _ask_choice(
         "语气", [(name, desc) for name, desc in _persona.TONES.values()],
@@ -572,7 +572,7 @@ def run(*, today: dt.date | None = None, dry_run: bool = False) -> int:
     print(f"✅ 已写入 {PROFILE_PATH}")
 
     # 体重不进 profile.json —— 它是随时间变的数据，归 data/body/。
-    # 这是 DATA.md 里「同一个值只有一个真相源」那条规矩的直接后果。
+    # 这是 README「你要自己填什么」里「同一个值只有一个真相源」那条规矩的直接后果。
     if weight_record:
         store.upsert_body([weight_record])
         print(f"✅ 体重 {weight_record['value']:g} kg 已写入 "

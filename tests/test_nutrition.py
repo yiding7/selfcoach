@@ -258,7 +258,7 @@ class TestShippedNutritionData:
     @staticmethod
     def _load(name):
         from health_assistant.config import KNOWLEDGE_DIR
-        return json.loads((KNOWLEDGE_DIR / name).read_text(encoding="utf-8"))
+        return json.loads((KNOWLEDGE_DIR / "nutrition" / name).read_text(encoding="utf-8"))
 
     def test_every_composition_ingredient_exists(self):
         """配比里写错一个食材名，那道菜就会静默地少算一块。"""

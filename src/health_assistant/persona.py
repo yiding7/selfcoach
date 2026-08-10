@@ -1,14 +1,14 @@
 """教练人格 —— 核心 + 可选语气层。
 
-分两层是有原因的。`knowledge/persona.md` 里那些「数字归脚本」「优点必须有数据
+分两层是有原因的。`knowledge/coach/persona.md` 里那些「数字归脚本」「优点必须有数据
 支撑」「身体感受优先于数字」是**行为约束**，换谁用都不能变；而打不打招呼、
 用不用表情符号是**口味**，本来就该让用户挑。混在一份文件里的后果是：
 用户想换个说话方式，就得去动那些不该动的规则。
 
 所以：
 
-    knowledge/persona.md              核心，不可选
-    knowledge/personas/<slug>.md      语气，用户选一个
+    knowledge/coach/persona.md              核心，不可选
+    knowledge/coach/personas/<slug>.md      语气，用户选一个
     data/profile.json 的 persona 字段  选了哪个
 
 `load()` 把两层拼起来。**核心永远在前** —— 语气文件是补充措辞，
@@ -24,14 +24,14 @@ import json
 
 from .config import KNOWLEDGE_DIR, PROFILE_PATH
 
-CORE_PATH = KNOWLEDGE_DIR / "persona.md"
-PERSONAS_DIR = KNOWLEDGE_DIR / "personas"
+CORE_PATH = KNOWLEDGE_DIR / "coach" / "persona.md"
+PERSONAS_DIR = KNOWLEDGE_DIR / "coach" / "personas"
 
 DEFAULT_TONE = "warm"
 
 PROFILE_FIELD_COMMENT = (
-    "教练语气。核心人格在 knowledge/persona.md（不可选、永远生效），"
-    "这里只挑语气层，对应 knowledge/personas/<值>.md。"
+    "教练语气。核心人格在 knowledge/coach/persona.md（不可选、永远生效），"
+    "这里只挑语气层，对应 knowledge/coach/personas/<值>.md。"
     "换语气只改措辞，不该改变任何一个数字或结论。"
     "改这个字段用 hc setup 或 hc persona --set。")
 
@@ -95,7 +95,7 @@ def warnings() -> list[str]:
         out.append(f"缺少 {CORE_PATH.name} —— 人格核心没了，教练会退化成通用模型")
     slug = current()
     if not tone_path(slug).exists():
-        out.append(f"缺少 knowledge/personas/{slug}.md —— 语气层没生效，只剩核心")
+        out.append(f"缺少 knowledge/coach/personas/{slug}.md —— 语气层没生效，只剩核心")
     return out
 
 
@@ -137,7 +137,7 @@ def load(slug: str | None = None) -> str:
 def render_list() -> str:
     """给 hc persona 用的清单。"""
     cur = current()
-    lines = ["教练语气（核心人格不可选，见 knowledge/persona.md）",
+    lines = ["教练语气（核心人格不可选，见 knowledge/coach/persona.md）",
              "=" * 46]
     for slug, (name, desc) in TONES.items():
         mark = "●" if slug == cur else "○"

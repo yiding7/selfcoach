@@ -521,7 +521,7 @@ class TestLocalPool:
 
 def _shipped(name: str) -> dict:
     from health_assistant.config import KNOWLEDGE_DIR
-    return json.loads((KNOWLEDGE_DIR / name).read_text(encoding="utf-8"))
+    return json.loads((KNOWLEDGE_DIR / "nutrition" / name).read_text(encoding="utf-8"))
 
 
 class TestShippedPool:

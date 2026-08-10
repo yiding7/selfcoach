@@ -107,7 +107,7 @@ license: MIT
 正确做法是归一化（`--ratio`）。
 
 对比输出里出现 `⊘ 未参与对比（口径存疑）` 是已经处置过的 `ignore`，照说就行。
-机制与测法见 `knowledge/load-measurement.md`。
+机制与测法见 `knowledge/measurement/load-measurement.md`。
 
 ## 技术点，用户可能会问
 

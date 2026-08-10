@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""把训记官方 1092 个动作名预分类成 knowledge/movement-taxonomy.json。
+"""把训记官方 1092 个动作名预分类成 knowledge/movements/movement-taxonomy.json。
 
     python3 scripts/build_taxonomy.py            # 从 GitHub 拉取动作名表并生成
     python3 scripts/build_taxonomy.py --review   # 只打印分类结果，供人工过目
 
 生成物随仓库发布，运行时不依赖 GitHub。动作名表只有中文名、没有肌群列，
-所以分类完全由 knowledge/movement-rules.json 的关键词规则推导 —— **需要人工复核**。
+所以分类完全由 knowledge/movements/movement-rules.json 的关键词规则推导 —— **需要人工复核**。
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ from health_assistant.taxonomy import (  # noqa: E402
     GROUP_ORDER, UNKNOWN, _rules, sort_groups)
 
 CATALOG_URL = "https://raw.githubusercontent.com/Foveluy/Xunji-movements/HEAD/README.md"
-CACHE = ROOT / "knowledge" / ".movement-names.txt"
-OUT = ROOT / "knowledge" / "movement-taxonomy.json"
+CACHE = ROOT / "knowledge" / "movements" / ".movement-names.txt"
+OUT = ROOT / "knowledge" / "movements" / "movement-taxonomy.json"
 
 ROW_RE = re.compile(r"^\|\s*(\d+)\s*\|\s*(.+?)\s*\|$")
 
@@ -93,7 +93,7 @@ def main() -> int:
         OUT.write_text(json.dumps({
             "_comment": (
                 "由 scripts/build_taxonomy.py 从训记官方动作名表 + "
-                "knowledge/movement-rules.json 生成。动作名表本身没有肌群列，"
+                "knowledge/movements/movement-rules.json 生成。动作名表本身没有肌群列，"
                 "分类由关键词规则推导，已人工复核。"
                 "接口返回的 movements[].type 优先级高于本表。"
             ),

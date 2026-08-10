@@ -91,13 +91,13 @@ cp profile/personal-context.example.md profile/personal-context.md
 | 下次练什么、上多重 | 「下次练背怎么安排」 | `hc next 背` | 同上 + `knowledge/` 规则 |
 | 手记训练 | 「今天卧推 40kg 做了 8/8/7」 | `hc log` | 写入 `data/training/` |
 | 看历史 | 「最近一个月练了几次」 | `hc sessions --since 30d` | 同上 |
-| 动作没认出来 | 「有哪些动作没归类」 | `hc classify --unknown-only` | `knowledge/movement-taxonomy.json` |
+| 动作没认出来 | 「有哪些动作没归类」 | `hc classify --unknown-only` | `knowledge/movements/movement-taxonomy.json` |
 
 ### 饮食
 
 | 功能 | 你可以这么说 | 命令 | 数据来源 |
 |---|---|---|---|
-| **今天吃什么** | 「不知道吃啥」「换一个」 | `hc dice` | `knowledge/dish-pool.json` + 你的约束 |
+| **今天吃什么** | 「不知道吃啥」「换一个」 | `hc dice` | `knowledge/nutrition/dish-pool.json` + 你的约束 |
 | **每日目标摄入量** | 「我一天该吃多少」 | `hc targets` | 身高体重年龄 + 实测步数 + 阶段 |
 | 这个能吃吗 | 「火锅能吃吗」 | 助手读红黄绿灯 | `profile/food-traffic-light.md` |
 | 蛋白够不够 | 「我蛋白吃够了吗」 | `hc targets` 对照 | 同上 |
@@ -128,9 +128,39 @@ cp profile/personal-context.example.md profile/personal-context.md
 
 ## 你要自己填什么
 
-工具能自动拿到的都自动拿了。**下面这些只能你给** ——
-它们散在几个文件里各有道理（机器读的进 json，人读的进 md，原件进目录），
-但没人记得住五个位置，所以：
+### 数据从哪来
+
+大部分数据是自己流进来的。**真正需要你定期动手的只有两件事**：
+每周量一次围度、每月导一次苹果健康。
+
+| 你的数据 | 怎么进来 | 你要做什么 | 频率 |
+|---|---|---|---|
+| 力量训练 | 训记 app → 后台自动同步 | **什么都不用做** | 自动，每 3 小时 |
+| 有氧 | Apple Watch → 训记 → 自动同步 | **什么都不用做** | 自动，每 3 小时 |
+| 体重 | Apple Health → 训记 → 自动同步 | **什么都不用做** | 自动，每 3 小时 |
+| 腰围 / 围度 | 自己测 → 记进训记或 Apple Health | 量一次、记一次 | **每周一次** |
+| 饮酒 / 步数 / 睡眠 / 静息心率 | Apple Health 导出 zip → 手动导入 | 导出 + 跑一条命令 | **每月一次** |
+| 体检报告 | PDF 丢进 `profile/medical/` → 让助手解析 | 拷文件 + 说一句话 | 每次体检后 |
+
+三件值得知道的事：
+
+- **围度为什么要自己测**：新手期一边增肌一边减脂时，腰围比体重更能反映腹部脂肪。
+  固定同一天、晨起空腹、脐水平、呼气末读数 —— **方法固定下来才有意义**，
+  自己按固定方法测的一致性比体检机构之间高得多。
+- **饮酒只有苹果健康有**，不经过训记，所以那一步导出躲不掉。
+  iPhone：健康 → 头像 → 导出所有健康数据 → 隔空投送到 Mac →
+  `hc import-health ~/Downloads/导出.zip`。同一个 zip 会把步数、睡眠、
+  静息心率、HRV 一起带进来。重复导入是安全的。
+- **体检报告的文件名必须带日期**（`2026-11-15-体检.pdf`），助手靠它排序、
+  判断哪份最新，并明确指出哪些异常项这次根本没复测。
+
+核对随时用 `./scripts/hc status` —— 不联网，秒回，告诉你数据抓到哪天、
+缺几天、后台同步还活着没。
+
+### 一次性要填的
+
+工具拿不到的只有下面这些。它们散在几个文件里各有道理（机器读的进 json，
+人读的进 md，原件进目录），但没人记得住五个位置，所以：
 
 ```bash
 ./scripts/hc setup          # 引导式一次问完
@@ -156,6 +186,18 @@ cp profile/personal-context.example.md profile/personal-context.md
 > **一条原则：每个值只有一个真相源。** 散是可以的，重是不行的 ——
 > 同一个数字出现在两个文件里，迟早有一份是旧的。
 > 所以散文文件里**引用**数值，不复制数值；`hc doctor` 会检查两边冲突并报出来。
+
+### 三条红线
+
+1. **不要把 `.env` 里的训记 key 打印到对话、日志或报告里。**
+2. **不要把 `data/`、`profile/`、`knowledge/library/` 提交到版本库。**
+   已在 `.gitignore` 里，别手动 `git add -f`。
+3. **不要用 `hc sync --force` 重抓训练历史** —— 训练接口限频 30 秒/天，
+   补一年要 3 小时。改了解析逻辑要重算，用 `hc rebuild`（离线，零网络请求）。
+
+> 每个字段长什么样、jsonl 逐字段的格式、怎么手工维护、排错对照表 ——
+> 都在 [`data-map.md`](data-map.md)。上面这一节够你日常用了，
+> 那份是要动手改文件时才翻的。
 
 ---
 
@@ -253,9 +295,9 @@ hc dice --again              # 不满意，重摇
   今日目标  2382 kcal · 蛋白 160 g · 脂肪 64 g · 碳水 293 g   （减脂期 · 80.25 kg）
 ```
 
-菜品的每 100 g 是**算出来的**，不是手写的：`knowledge/dish-composition.json`
+菜品的每 100 g 是**算出来的**，不是手写的：`knowledge/nutrition/dish-composition.json`
 存配比（这道菜由哪些食材按什么比例组成），乘上
-`knowledge/nutrition-reference.json` 的食材值（USDA FoodData Central，熟重口径）。
+`knowledge/nutrition/nutrition-reference.json` 的食材值（USDA FoodData Central，熟重口径）。
 这样发现某个食材值错了能一次性全部修正，而不是挨个改 135 个数字。
 
 **刻意不替你算「这顿吃了多少」** —— 那需要知道份量，而份量是这里唯一
@@ -289,7 +331,7 @@ hc dice --again              # 不满意，重摇
   想换用 `--again`，旧记录仍留在日志里。
 - **破戒额度跟着阶段走**，不是写死的：减脂 1 次/月、维持 2 次、增肌 4 次。
   额度是自己给自己定的上限，超了只陈述不说教 —— 一个永远不摇火锅的骰子没人会用第二周。
-- **嘌呤分档来自 USDA/ODS 实测数据**（`knowledge/purine-reference.json`），
+- **嘌呤分档来自 USDA/ODS 实测数据**（`knowledge/nutrition/purine-reference.json`），
   不是凭印象。几个反直觉的结论：鸡胸和牛肉基本一个量级；豆腐是低嘌呤；
   啤酒的嘌呤其实很低（它伤尿酸靠的是酒精抑制排泄）。
 
@@ -408,7 +450,7 @@ hc sync --since 14d
 
 目前内置的规则：背的垂直/水平拉比例、胸的上斜推占比、肩有没有练后束、
 腿的膝主导/髋铰链比例、三头有没有过头伸展。规则在
-`knowledge/pattern-balance.json`，可以自己改。
+`knowledge/movements/pattern-balance.json`，可以自己改。
 
 **只看滚动窗口，不看单次。** 单次训练有侧重完全正常，甚至是好事；
 值得提示的是持续几周的结构性缺失。
@@ -630,14 +672,19 @@ hc journal confirm <ID> --landed <文件#小节>
 ## 目录结构与隐私
 
 ```
-profile/medical/ 体检报告原件（PDF / 图片），**不进版本库**
-                 文件名带日期，比如 2026-04-体检.pdf；助手会读取并跨次对比
-knowledge/       通用知识，**提交进版本库、可分享**
-                 人格、安全边界、动作肌群表、动作模式表、结构平衡规则、训练量参考
-knowledge/library/ 你自己的专业资料（教材、课程、笔记），**不进版本库**
-                 仓库里只有目录骨架和 README，内容留在本机。见其 README.md
+knowledge/       通用知识，**提交进版本库、可分享**。按主题分五个区：
+  coach/           人格核心、四种语气、安全边界、能力矩阵（模型读）
+  measurement/     围度测量规程、负荷计量口径（模型读）
+  movements/       动作分类、动作模式、结构平衡规则（脚本读）
+  training/        周容量参考区间、心率区间、自重系数（脚本读）
+  nutrition/       候选池、配比表、食材营养、嘌呤实测值（脚本读）
+  library/         **你自己的零散资料**（论文、讲义、笔记），**不进版本库**
+                   仓库里只有目录骨架和 README。不确定放哪就丢 library/notes/
+  <某某知识库>/    **整套现成的资料库**直接丢在 knowledge/ 根上，保持原样不用拆
+                   根目录是 gitignore 白名单，所以丢在这儿不会被误提交
 profile/         个人隐私，**不进版本库**
                  病史、用药、体检数值、忌口、作息、个人化红黄绿灯
+profile/medical/ 体检报告原件（PDF / 图片）。文件名带日期，比如 2026-04-体检.pdf
 data/            私人数据，**不进版本库**
                  训练记录、体重、饮食、原始缓存
 chat-history/    历史对话归档，**不进版本库**
@@ -647,10 +694,12 @@ src/             纯标准库实现
 ```
 
 `knowledge/` 和 `profile/` 的分界线决定了这个仓库能不能安全地公开分享：
-**通用的进 git，只属于你一个人的不进。**
+**通用的进 git，只属于你一个人的不进。** 为了让「放错位置」的后果是被忽略
+而不是被公开提交，`knowledge/` 根目录做了白名单 —— 只有上面列的六个目录
+和 `README.md` 会进版本库。
 
-> **数据放在哪、什么格式、多久导一次 —— 全部写在 [`DATA.md`](DATA.md)。**
-> 想按同样的格式手工维护数据，或者想知道苹果健康多久导一次，看那份。
+> **每个字段长什么样、怎么手工维护、排错查哪里 —— 在
+> [`data-map.md`](data-map.md)。** 日常不用读，要动手改文件时再翻。
 
 其它隐私措施：
 

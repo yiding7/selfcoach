@@ -12,7 +12,7 @@ import pytest
 from health_assistant.analytics.metrics import session_stats
 from health_assistant.analytics.prescribe import prescribe_group, rep_range
 
-# 区间边界从配置里取，不写死。knowledge/training-landmarks.json 改过一次
+# 区间边界从配置里取，不写死。knowledge/training/training-landmarks.json 改过一次
 # （compound 5-8 → 6-10），写死的话这些用例会跟着配置一起漂。
 LO, HI = rep_range("杠铃深蹲")
 
