@@ -125,6 +125,16 @@ def check(*, verbose: bool = False) -> int:
         mark = OK if p.exists() else WARN
         lines.append(f"  {mark.rstrip()} {desc}{'' if p.exists() else '  ← 缺失'}")
 
+    # 语气层单独查。核心在、语气文件丢了，教练还能用但会变得干巴 ——
+    # 这种「降级但没坏」的状态必须说出来，否则用户只会觉得「换了没反应」。
+    from . import persona as _persona
+    missing_tones = [s for s in _persona.TONES if not _persona.tone_path(s).exists()]
+    tone_mark = OK if not missing_tones else WARN
+    lines.append(f"  {tone_mark.rstrip()} 语气层 {len(_persona.TONES) - len(missing_tones)}"
+                 f"/{len(_persona.TONES)} 份"
+                 + (f"　← 缺 {'、'.join(missing_tones)}" if missing_tones else "")
+                 + f"　当前：{_persona.label(_persona.current())}")
+
     # profile/ 是个人隐私，不进版本库。缺了不是错误，只是助手会少一些上下文。
     lines.append(f"\n{'个人档案（私密，不进版本库）':─<14}")
     profile_dir = ROOT / "profile"
