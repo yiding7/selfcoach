@@ -23,6 +23,52 @@ def mask(key: str) -> str:
     return f"{key[:6]}…{key[-4:]}"
 
 
+# agent 宿主目录 → 人话名字。install.sh 往这些位置铺软链，skills/ 是唯一真相源。
+SKILL_HOSTS = ((".claude/skills", "Claude Code 项目级"),
+               (".codex/skills", "Codex"))
+
+
+def _check_skill_links() -> list[str]:
+    """查 agent 宿主目录里的 skill 软链有没有断，以及是不是绝对路径。
+
+    为什么值得单独查：断链的报错出现在 **agent 那一侧**
+    （「Unknown skill: health-coach」），跟这个仓库看不出关系。
+    而成因往往是仓库改了名或搬了家 —— 绝对软链把旧路径烧死在里面了。
+
+    宿主目录不存在就返回空：没链过不是问题，手记模式和 hc 命令都不依赖它。
+    """
+    out: list[str] = []
+    src_names = sorted(p.name for p in (ROOT / "skills").glob("*/"))
+    for rel, human in SKILL_HOSTS:
+        host = ROOT / rel
+        if not host.is_dir():
+            continue
+        broken, absolute, linked = [], [], 0
+        for name in src_names:
+            dest = host / name
+            if not dest.is_symlink():
+                continue
+            linked += 1
+            if not dest.exists():
+                broken.append(name)
+            elif Path(dest.readlink()).is_absolute():
+                absolute.append(name)
+        if not linked:
+            continue
+        if broken:
+            out.append(f"  {BAD} {rel}：{len(broken)}/{linked} 个死链"
+                       f"（{'、'.join(broken)}）")
+            out.append(f"      指向的目标不存在 —— 多半是项目改过名或搬过家。"
+                       f"跑 `./install.sh` 重建")
+        elif absolute:
+            # 还没坏，但下一次改名就会坏。说出来，不打红叉。
+            out.append(f"  {WARN.rstrip()} {rel}：{len(absolute)}/{linked} 个是绝对路径软链，"
+                       f"项目一改名就会断。跑 `./install.sh` 换成相对路径")
+        else:
+            out.append(f"  {OK} {rel}（{human}）：{linked}/{len(src_names)} 个 skill 已链接")
+    return out
+
+
 def check(*, verbose: bool = False) -> int:
     load_env()
     lines: list[str] = []
@@ -157,6 +203,17 @@ def check(*, verbose: bool = False) -> int:
                  f"/{len(_persona.TONES)} 份"
                  + (f"　← 缺 {'、'.join(missing_tones)}" if missing_tones else "")
                  + f"　当前：{_persona.label(_persona.current())}")
+
+    # ── skill 软链 ──
+    # 断链的症状出现在 agent 那一侧（「Unknown skill: health-coach」），
+    # 跟这个仓库看不出任何关系，所以必须在这里主动查一次。
+    # 最常见的成因是项目改名或搬家把绝对软链指瞎了 —— 2026-08-11 踩过。
+    skill_lines = _check_skill_links()
+    if skill_lines:
+        lines.append(f"\n{'技能软链（agent 宿主）':─<17}")
+        lines += skill_lines
+        if any(BAD in ln for ln in skill_lines):
+            todo.append("skill 软链断了 —— 跑一次 `./install.sh` 重建")
 
     # profile/ 是个人隐私，不进版本库。缺了不是错误，只是助手会少一些上下文。
     lines.append(f"\n{'个人档案（私密，不进版本库）':─<14}")

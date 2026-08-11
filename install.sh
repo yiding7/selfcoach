@@ -43,29 +43,52 @@ fi
 chmod +x scripts/hc 2>/dev/null || true
 
 # ── 把 skills 链到 agent 宿主 ──
+#
+# 仓库**内部**的宿主目录（.claude/ .codex/）一律用**相对**软链。
+#
+# 为什么：绝对软链会把仓库的绝对路径烧进链接里，项目一改名、一搬家，
+# 七个链接同时变成死链 —— 而症状是 agent 那边报「Unknown skill: health-coach」，
+# 跟目录改名看不出任何关系，极难定位。2026-08-11 就这么踩过一次：
+# 项目从 health-assistant 改名成 selfcoach，每次启动都报错。
+# 相对链接跟着仓库一起走，改名搬家都不影响。
+#
+# 全局目录（~/.claude/skills）在仓库外面，相对路径没有意义，只能用绝对路径 ——
+# 那种情况下搬仓库确实需要重跑一次 install.sh，这是无法避免的。
 link_skills() {
-  local target="$1" label="$2"
+  local target="$1" label="$2" relative="${3:-}"
   mkdir -p "$target"
-  local n=0
+  local n=0 fixed=0
   for d in "$HERE"/skills/*/; do
     local name; name="$(basename "$d")"
     local dest="$target/$name"
-    if [ -L "$dest" ]; then rm -f "$dest"
-    elif [ -e "$dest" ]; then warn "$label/$name 已存在且不是软链，跳过"; continue; fi
-    ln -s "$d" "$dest" && n=$((n+1))
+    local src="$d"
+    # $target 是 $HERE/.claude/skills，回到仓库根要退两级
+    [ -n "$relative" ] && src="../../skills/$name"
+
+    if [ -L "$dest" ]; then
+      # 已经是软链：断了或指错了都重建。**断链要单独计数并说出来** ——
+      # 静默修好等于下次还会踩，用户永远不知道发生过什么。
+      [ -e "$dest" ] || fixed=$((fixed+1))
+      rm -f "$dest"
+    elif [ -e "$dest" ]; then
+      warn "$label/$name 已存在且不是软链，跳过"; continue
+    fi
+    ln -s "$src" "$dest" && n=$((n+1))
   done
   [ "$n" -gt 0 ] && ok "${label}：链接了 $n 个 skill"
+  [ "$fixed" -gt 0 ] && warn "其中 $fixed 个原来是**死链**（多半是项目改过名或搬过家），已重建"
+  return 0
 }
 
 case "${1:-auto}" in
   auto)
-    link_skills "$HERE/.claude/skills" ".claude/skills（Claude Code 项目级）"
+    link_skills "$HERE/.claude/skills" ".claude/skills（Claude Code 项目级）" relative
     ;;
   global)
     link_skills "$HOME/.claude/skills" "~/.claude/skills（Claude Code 全局）"
     ;;
   codex)
-    link_skills "$HERE/.codex/skills" ".codex/skills"
+    link_skills "$HERE/.codex/skills" ".codex/skills" relative
     ;;
   none) say "  跳过 skill 链接" ;;
 esac
