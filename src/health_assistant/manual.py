@@ -27,8 +27,14 @@
     BW / 自重     自重；BW+10 表示自重加 10kg
     T:60s        计时组
     L:.. R:..    单侧，分别记左右
-    #            行内注释
-    >            整次训练的备注
+    #            注释。**只有第一行 # 是标题行**（日期 名字 起止时间，
+                 三样都可省），之后的 # 无论整行还是行尾都只当注释
+    >            整次训练的备注，可以写多行
+
+哑铃动作按**单只手**的重量写，解析器知道要乘二。
+
+可以直接跑的样例见 `examples/workout.txt`；
+体重、围度、饮食这些不走这里，格式见 `examples/README.md`。
 """
 
 from __future__ import annotations
@@ -223,6 +229,7 @@ def parse(text: str, *, default_date: dt.date | None = None) -> ParseResult:
     start_ms = end_ms = None
     notes: list[str] = []
     movements: list[dict] = []
+    header_seen = False
 
     for line_no, raw in enumerate(text.splitlines(), 1):
         line = raw.split("#", 1)[0].strip() if not raw.strip().startswith("#") else raw.strip()
@@ -230,6 +237,15 @@ def parse(text: str, *, default_date: dt.date | None = None) -> ParseResult:
             continue
 
         if line.startswith("#"):
+            # **只有第一行 # 是标题行，后面的一律当注释。**
+            #
+            # 之前每一行 # 都往 HEADER_RE 里过一遍，最后一行赢 —— 于是在文件
+            # 中间或末尾随手写一句 `# 换了家健身房`，标题就被它悄悄顶掉了，
+            # 日期也可能跟着变。而写注释是速记文本里最自然不过的事。
+            # 静默改掉用户填的字段是这个项目最不能接受的一类失败。
+            if header_seen:
+                continue
+            header_seen = True
             m = HEADER_RE.match(line)
             if m:
                 if m.group(1):

@@ -85,6 +85,13 @@
 
 ## 2. 格式规范（照着这个格式手工维护也不会出错）
 
+> **可以直接打开抄的样例在 [`examples/`](examples/README.md)** ——
+> 训练速记、体重围度、苹果健康指标、饮食各一份，`tests/test_examples.py`
+> 保证它们不会烂掉。没有训记的用户从那份 README 开始最省事。
+>
+> ⚠️ 样例**故意不放在 `data/` 里**：`store` 按 `data/**/*.jsonl` 通配读，
+> 样例搁进去会被当成真实数据算进趋势。照着格式写进真文件，别拷样例文件。
+
 所有 `.jsonl` 都是**一行一条 JSON**，没有外层数组，没有逗号。
 `id` 是去重键 —— **同 `id` 会覆盖，不会重复插入**，所以重复导入是安全的。
 
@@ -135,8 +142,17 @@
             "rpe":null,"done":true,"self_weight":false}]}]}
 ```
 
-手工造这个不现实 —— **用 `./scripts/hc log`**，它接受人话式的文本，
-解析后会先给你摘要确认再写入。
+手工造这个不现实（一次训练几十个嵌套对象）—— **用 `./scripts/hc log`**，
+它接受人话式的速记文本，解析后会先给你摘要确认再写入。
+
+```bash
+./scripts/hc log --syntax                              # 完整速记语法
+./scripts/hc log --file examples/workout.txt --dry-run # 拿样例试一遍，不写入
+```
+
+速记样例见 [`examples/workout.txt`](examples/workout.txt)。三个最容易踩的：
+**哑铃按单只手的重量写**、`~` 开头的热身组不计入有效容量、
+**只有第一行 `#` 是标题行**（之后的 `#` 都只当注释）。
 
 ### 饮食 `data/meals/YYYY-MM.jsonl`
 

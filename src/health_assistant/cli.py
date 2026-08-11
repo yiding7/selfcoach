@@ -653,6 +653,17 @@ def cmd_log(args) -> int:
 
     from . import manual
 
+    if getattr(args, "syntax", False):
+        # 速记语法的唯一真相源是 manual 模块的 docstring —— 那份就贴在
+        # 解析器旁边，改语法时不可能忘了改它。这里直接打出来，
+        # 而不是在 CLI 里再抄一份（抄一份就会有一份是旧的）。
+        print((manual.__doc__ or "").strip())
+        print("\n" + "─" * 56)
+        print("可以直接跑的样例：examples/workout.txt")
+        print("  ./scripts/hc log --file examples/workout.txt --dry-run")
+        print("其他数据（体重/围度/饮食/步数）怎么手工写：examples/README.md")
+        return 0
+
     if args.file == "-":
         if sys.stdin.isatty():
             print("从标准输入读速记文本，Ctrl-D 结束：\n")
@@ -1196,6 +1207,8 @@ def build_parser() -> argparse.ArgumentParser:
     lg.add_argument("--date", help="日期，默认取文本里的或今天")
     lg.add_argument("--dry-run", action="store_true", help="只解析并展示，不写入")
     lg.add_argument("--yes", action="store_true", help="跳过确认直接写入")
+    lg.add_argument("--syntax", action="store_true",
+                    help="打印速记语法和样例文件位置，不读输入")
     lg.set_defaults(func=cmd_log)
 
     cf = sub.add_parser("classify", help="查看或教会动作的肌群归属")

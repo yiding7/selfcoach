@@ -39,6 +39,26 @@ class TestHeader:
         r = one("# 2026-07-26 深夜 23:30-00:40\n杠铃卧推 60x10")
         assert r.session["duration_s"] == 70 * 60
 
+    def test_only_the_first_hash_line_is_the_header(self):
+        """后面的整行 # 是注释，**不能**把标题和日期顶掉。
+
+        写注释是速记文本里最自然的事。之前每行 # 都进 HEADER_RE，最后一行赢，
+        于是在文件末尾写一句说明就会静默改掉用户填的日期和标题 ——
+        这类「悄悄改数据」是这个项目最不能接受的失败。
+        """
+        r = one("# 2026-07-26 推日 19:05-20:20\n"
+                "杠铃卧推 60x10\n"
+                "# 换了家健身房\n"
+                "# 2099-01-01 这不该被当成标题\n")
+        s = r.session
+        assert s["date"] == "2026-07-26"
+        assert s["title"] == "推日"
+        assert s["duration_s"] == 75 * 60
+
+    def test_a_comment_before_any_movement_still_cannot_hijack_the_header(self):
+        r = one("# 2026-07-26 推日\n# 说明行\n杠铃卧推 60x10")
+        assert r.session["title"] == "推日"
+
 
 class TestSets:
     def test_basic(self):
