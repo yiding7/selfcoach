@@ -41,6 +41,46 @@ def _write_profile(path, data):
     path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
 
+class TestAddresses:
+    """称呼。要害只有一个：**空是答案，不是缺失。**
+
+    有人不喜欢被叫名字。如果空被当成「还没填」，教练要么反复催他填，
+    要么自己想一个 —— 后者比不叫更冒犯。
+    """
+
+    def test_empty_when_never_asked(self, sandbox):
+        assert persona.addresses() == []
+
+    def test_reads_the_list_in_order(self, sandbox):
+        _write_profile(sandbox["profile"], {"address": ["Tim", "Timothy"]})
+        assert persona.addresses() == ["Tim", "Timothy"], "顺序有意义，第一个是默认"
+
+    def test_explicit_empty_stays_empty(self, sandbox):
+        """明确填了空 = 不要称呼。绝不能在这里补一个默认值。"""
+        _write_profile(sandbox["profile"], {"address": []})
+        assert persona.addresses() == []
+
+    def test_a_bare_string_is_accepted(self, sandbox):
+        """手改 json 的人十有八九会写成字符串，认它比报错有用。"""
+        _write_profile(sandbox["profile"], {"address": "Tim"})
+        assert persona.addresses() == ["Tim"]
+
+    @pytest.mark.parametrize("bad", [123, {"first": "Tim"}, None])
+    def test_garbage_degrades_to_empty_instead_of_raising(self, sandbox, bad):
+        """一个称呼字段填坏了，不该让整个教练用不了。"""
+        _write_profile(sandbox["profile"], {"address": bad})
+        assert persona.addresses() == []
+
+    def test_blanks_and_padding_are_dropped(self, sandbox):
+        _write_profile(sandbox["profile"], {"address": ["  Tim  ", "", "   ", 7]})
+        assert persona.addresses() == ["Tim"]
+
+    def test_render_list_says_when_there_is_no_address(self, sandbox):
+        """`hc persona` 得能区分「没设」和「设成了不要称呼」，否则用户没法核对。"""
+        _write_profile(sandbox["profile"], {"address": []})
+        assert "不用称呼" in persona.render_list()
+
+
 class TestComposition:
     def test_core_comes_before_tone(self, sandbox):
         _write_profile(sandbox["profile"], {"persona": "strict"})

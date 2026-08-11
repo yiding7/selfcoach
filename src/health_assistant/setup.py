@@ -50,6 +50,8 @@ DATA_MAP = [
      "决定目标热量、破戒额度、红黄绿灯权重"),
     ("教练语气（四选一）", "data/profile.json → persona", "hc setup / hc persona --set",
      "只换措辞，不换规则；核心人格在 knowledge/coach/persona.md，选不了"),
+    ("称呼（怎么叫你，可多个，可留空）", "data/profile.json → address", "hc setup",
+     "唯一真相源。knowledge/ 会进版本库，名字绝不能写那边；留空就是不要称呼"),
     ("训练计划（频率/单次时长/侧重）", "data/profile.json → training", "hc setup",
      "hc next 拿单次时长提示超没超；建议值按目标推，以你填的为准"),
     ("周起始日（周一/周日）", "data/profile.json → training.week_start", "hc setup",
@@ -386,7 +388,7 @@ def actual_days_per_week(*, weeks: int = 8, today: dt.date | None = None
 
 
 def _ask_training(p: dict, phase: str) -> dict:
-    """⑧ 训练计划。
+    """⑨ 训练计划。
 
     顺序是刻意的：**先按目标算出一份建议并说明理由，再让用户填**。
     反过来（先问、再评价他填的）会变成脚本在考用户；而只给建议不让改，
@@ -397,7 +399,7 @@ def _ask_training(p: dict, phase: str) -> dict:
     rec, why = _plan.suggest(goal_metric=goal_metric, phase=phase,
                              current_days=actual_days_per_week())
 
-    print("\n⑧ 训练计划")
+    print("\n⑨ 训练计划")
     print("   下面这份是按你当前目标推的**建议值**，不是处方 —— 直接回车就采用它，")
     print("   想按自己的安排来就改，以你填的为准。")
     for line in why:
@@ -516,6 +518,13 @@ def run(*, today: dt.date | None = None, dry_run: bool = False) -> int:
         _persona.label(_persona.current()))
     tone = _persona.normalize(tone_label) or _persona.DEFAULT_TONE
 
+    # ⑧ 称呼。**留空是一个合法答案，不是跳过一道必答题** —— 有人不喜欢被叫名字。
+    #    所以提示语里把「不填」和「填几个」摆成对等的两个选项，不诱导。
+    print("\n⑧ 称呼（教练怎么叫你。可以填多个，第一个是默认）")
+    print("   直接回车 = 不要称呼，教练开门见山说事。")
+    print("   多个的用法：正式一点的场合用一个，平时用另一个。")
+    address = _ask_list("怎么称呼你？", _persona.addresses())
+
     training = _ask_training(p, phase)
 
     diet.update({"phase": phase, "medical_blocks": blocks,
@@ -524,8 +533,10 @@ def run(*, today: dt.date | None = None, dry_run: bool = False) -> int:
                  "avoid": []})
     p["diet"] = diet
     p["persona"] = tone
+    p["address"] = address
     p["training"] = training
     p.setdefault("_persona_comment", _persona.PROFILE_FIELD_COMMENT)
+    p.setdefault("_address_comment", _persona.ADDRESS_FIELD_COMMENT)
     if sex:
         p["sex"] = sex
     if birth_ym:
@@ -551,6 +562,7 @@ def run(*, today: dt.date | None = None, dry_run: bool = False) -> int:
         for k in ("sex", "birth_year", "birth_month", "height_cm", "persona"):
             if k in p:
                 print(f"    {k} = {p[k]}")
+        print(f"    address = {address or '[]（不要称呼）'}")
         print(f"    diet.phase = {diet['phase']}")
         print(f"    diet.medical_blocks = {diet['medical_blocks']}")
         print(f"    diet.likes = {diet['likes']}")
@@ -626,6 +638,14 @@ def render_checklist() -> list[str]:
                  f"{_persona.label(tone)}"
                  + ("" if p.get("persona") is not None else "（默认值，没设）")
                  + "　← persona")
+    # 称呼：**空不算缺**，所以判据是「问过没有」（字段在不在），不是「有没有值」。
+    # 拿 ⬜ 去催一个已经明确说「不要称呼」的人，是这个项目最不该有的那种噪音。
+    asked_address = "address" in p
+    addrs = _persona.addresses()
+    lines.append(f"  {mark(asked_address)} 称呼："
+                 + ("、".join(addrs) if addrs
+                    else ("不要称呼（已确认）" if asked_address else "没问过"))
+                 + "　← address")
     for w in _persona.warnings():
         lines.append(f"  ⚠️  {w}")
 

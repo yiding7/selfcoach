@@ -35,6 +35,12 @@ PROFILE_FIELD_COMMENT = (
     "换语气只改措辞，不该改变任何一个数字或结论。"
     "改这个字段用 hc setup 或 hc persona --set。")
 
+ADDRESS_FIELD_COMMENT = (
+    "教练怎么称呼你。可以有多个（正式场合一个、平时一个），第一个是默认。"
+    "这里是唯一真相源 —— knowledge/ 会进版本库，名字绝不能写进那边；"
+    "profile/ 的散文档案里也只引用不复制。空表示不要称呼，教练直接说事。"
+    "改这个字段用 hc setup。")
+
 # slug → (显示名, 一句话说明)。顺序就是 hc setup 和 hc persona 的展示顺序。
 TONES: dict[str, tuple[str, str]] = {
     "warm":      ("亲切客观", "熟悉你、愿意把话说明白。会打招呼，表情符号少量且有所指"),
@@ -81,6 +87,23 @@ def current() -> str:
 
 def tone_path(slug: str | None = None):
     return PERSONAS_DIR / f"{slug or current()}.md"
+
+
+def addresses() -> list[str]:
+    """怎么称呼用户。空列表 = 没设，或者用户明确选择不要称呼。
+
+    **空是一个合法答案，不是缺失。** 有人不喜欢被叫名字，教练直接说事就行 ——
+    所以这里不给任何默认值，也不去别处猜（猜出来的称呼比没有称呼更冒犯）。
+
+    容错和 `current()` 一致：字段类型不对就当没设，不抛异常 ——
+    一个称呼字段填坏了不该让整个教练用不了。
+    """
+    raw = _profile().get("address")
+    if isinstance(raw, str):          # 单个字符串也认，用户手改 json 时很容易这么写
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+    return [s.strip() for s in raw if isinstance(s, str) and s.strip()]
 
 
 def warnings() -> list[str]:
@@ -146,6 +169,12 @@ def render_list() -> str:
         lines.append(f"      {desc}")
     lines.append("")
     lines.append(f"  当前：{label(cur)}　←　data/profile.json 的 persona")
+    # 称呼跟语气一起显示：它俩是同一件事的两面（怎么开口），
+    # 而且用户想核对「教练该怎么叫我」时不会想到去翻 json。
+    addrs = addresses()
+    lines.append(f"  称呼：{'、'.join(addrs) if addrs else '不用称呼（address 为空）'}"
+                 f"　←　data/profile.json 的 address"
+                 + ("　第一个是默认" if len(addrs) > 1 else ""))
     lines.append("  切换：hc persona --set 严厉严肃    或    hc setup")
     for w in warnings():
         lines.append(f"  ⚠️  {w}")
