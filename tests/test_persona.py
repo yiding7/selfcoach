@@ -158,14 +158,48 @@ class TestShippedFiles:
         assert "knowledge/coach/personas/" in core
 
     def test_knowledge_dir_carries_no_identity(self):
-        """knowledge/ 进版本库且仓库公开，名字只能待在 profile/。"""
-        import re
+        """**会进版本库的** knowledge/ 文件里不能有名字 —— 仓库是公开的。
 
-        from health_assistant.config import KNOWLEDGE_DIR
+        判据必须是「git 会不会收它」，不是「在不在 knowledge/ 下面」。
+        `knowledge/` 根目录是 .gitignore 白名单：整套私人知识库
+        （买来的课程包、聊天记录归档）就该原样丢在那一层，
+        它们**永远不进版本库**，扫它们只会扫出假阳性。
+
+        所以这里问 git 本身，而不是自己维护一份「哪些目录算私有」的清单 ——
+        那份清单一定会和 .gitignore 漂开。用 check-ignore 而不是 ls-files，
+        是为了连**还没 git add 的新文件**也一起查到。
+        """
+        import re
+        import subprocess
+
+        from health_assistant.config import KNOWLEDGE_DIR, ROOT
+
+        candidates = sorted(KNOWLEDGE_DIR.rglob("*.md"))
+        if not candidates:
+            pytest.skip("knowledge/ 里没有 .md")
+
+        rels = [str(p.relative_to(ROOT)) for p in candidates]
+        # -z 是必须的：默认 core.quotePath=true 会把中文路径转义成 \346\233\277…，
+        # 跟这边的原始字符串永远对不上，结果是**所有中文路径都被当成「没被忽略」**
+        # 而去扫 —— 正是这个测试原本报假阳性的那批文件。
+        try:
+            proc = subprocess.run(
+                ["git", "check-ignore", "--stdin", "-z"], cwd=ROOT,
+                input="\0".join(rels), capture_output=True, text=True)
+        except (OSError, subprocess.SubprocessError):     # 没有 git 就没法判定
+            pytest.skip("跑不了 git check-ignore")
+        # 退出码 0=有被忽略的 1=一个都没被忽略，都算正常；128 才是真出错
+        if proc.returncode not in (0, 1):
+            pytest.skip(f"git check-ignore 失败：{proc.stderr.strip()}")
+        ignored = {s for s in proc.stdout.split("\0") if s}
 
         banned = re.compile(r"\bTim(othy)?\b", re.IGNORECASE)
-        for p in KNOWLEDGE_DIR.rglob("*.md"):
-            if "library" in p.parts:      # 用户的私人资料，本来就不进版本库
+        checked = 0
+        for p, rel in zip(candidates, rels):
+            if rel in ignored:            # 私人资料，本来就不进版本库
                 continue
+            checked += 1
             assert not banned.search(p.read_text(encoding="utf-8")), \
-                f"{p} 里出现了身份信息 —— 那属于 profile/"
+                f"{rel} 会进版本库，但里面出现了身份信息 —— 那属于 profile/"
+        # 过滤器写错时会把所有文件都排除掉，测试就变成永远通过的摆设
+        assert checked, "一个会进版本库的 knowledge/*.md 都没查到，过滤器写反了"
