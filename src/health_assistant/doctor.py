@@ -29,43 +29,78 @@ SKILL_HOSTS = ((".claude/skills", "Claude Code 项目级"),
 
 
 def _check_skill_links() -> list[str]:
-    """查 agent 宿主目录里的 skill 软链有没有断，以及是不是绝对路径。
+    """查 agent 宿主目录里的 skill 软链：断没断、缺没缺、有没有留下孤儿。
 
     为什么值得单独查：断链的报错出现在 **agent 那一侧**
     （「Unknown skill: health-coach」），跟这个仓库看不出关系。
     而成因往往是仓库改了名或搬了家 —— 绝对软链把旧路径烧死在里面了。
 
-    宿主目录不存在就返回空：没链过不是问题，手记模式和 hc 命令都不依赖它。
+    **遍历宿主目录里实际存在的软链，不是 skills/ 里现存的名字。**
+    只按 skills/ 的名字去看的话，改名留下的孤儿死链永远碰不到：把
+    skills/xunji-sync 改成 sync-xunji 再跑 install.sh，新链建好了，宿主里那条
+    旧链还指着已经不存在的目录，而 doctor 会一边打「7/7 已链接」一边让 agent
+    读不到那份 skill —— 拿着一片绿的体检报告去查故障是最费时间的一种。
+
+    缺链和死链一样致命，所以「只链上一部分」和「目录在但一个都没链」都要如实报，
+    不能打绿勾。但宿主目录**不存在**时保持沉默：没链过不是问题，
+    手记模式和 hc 命令都不依赖 skill，在体检里制造噪音是负价值。
     """
     out: list[str] = []
-    src_names = sorted(p.name for p in (ROOT / "skills").glob("*/"))
+    src_names = {p.name for p in (ROOT / "skills").glob("*/")}
+    total = len(src_names)
     for rel, human in SKILL_HOSTS:
         host = ROOT / rel
         if not host.is_dir():
             continue
-        broken, absolute, linked = [], [], 0
-        for name in src_names:
-            dest = host / name
-            if not dest.is_symlink():
-                continue
-            linked += 1
-            if not dest.exists():
-                broken.append(name)
-            elif Path(dest.readlink()).is_absolute():
-                absolute.append(name)
-        if not linked:
+        links = sorted(p.name for p in host.iterdir() if p.is_symlink())
+        # 手工拷进去的真实目录：能用，但不会跟着仓库更新。不算死链。
+        copies = sorted(n for n in src_names
+                        if (host / n).exists() and not (host / n).is_symlink())
+        if not links and not copies:
+            out.append(f"  {BAD} {rel}（{human}）：目录在，但一个 skill 都没链上"
+                       f"（0/{total}）")
+            out.append("      多半是 ./install.sh 没跑完，或这个卷不支持软链"
+                       "（exFAT / SMB / 某些容器挂载）。"
+                       "agent 那边会报「Unknown skill: health-coach」")
             continue
-        if broken:
-            out.append(f"  {BAD} {rel}：{len(broken)}/{linked} 个死链"
-                       f"（{'、'.join(broken)}）")
-            out.append(f"      指向的目标不存在 —— 多半是项目改过名或搬过家。"
-                       f"跑 `./install.sh` 重建")
-        elif absolute:
+
+        dead = [n for n in links if not (host / n).exists()]
+        good = [n for n in links if n in src_names and (host / n).exists()]
+        absolute = [n for n in good if Path((host / n).readlink()).is_absolute()]
+        missing = sorted(src_names - set(links) - set(copies))
+
+        notes: list[str] = []
+        # 死链分两种，修法不同：名字还在 skills/ 里的重建，已经没了的直接删。
+        dead_known = [n for n in dead if n in src_names]
+        dead_gone = [n for n in dead if n not in src_names]
+        if dead_known:
+            notes.append(f"      {BAD} {len(dead_known)} 个死链"
+                         f"（{'、'.join(dead_known)}）—— 指向的目标不存在，"
+                         f"多半是项目改过名或搬过家。跑 `./install.sh` 重建")
+        if dead_gone:
+            notes.append(f"      {BAD} {len(dead_gone)} 个孤儿死链"
+                         f"（{'、'.join(dead_gone)}）—— skills/ 里已经没有这个名字，"
+                         f"是改名或删除留下的。删掉它：rm {rel}/{dead_gone[0]}")
+        live_orphan = [n for n in links if n not in src_names and n not in dead]
+        if live_orphan:
+            notes.append(f"      {WARN.rstrip()} {len(live_orphan)} 个链不属于本仓库的 "
+                         f"skills/（{'、'.join(live_orphan)}）—— 还能读到，"
+                         f"但已经不是这个项目在维护的了")
+        if missing:
+            notes.append(f"      {WARN.rstrip()} 缺 {len(missing)} 个"
+                         f"（{'、'.join(missing)}）—— agent 用不到这几份，"
+                         f"跑 `./install.sh` 补齐")
+        if absolute:
             # 还没坏，但下一次改名就会坏。说出来，不打红叉。
-            out.append(f"  {WARN.rstrip()} {rel}：{len(absolute)}/{linked} 个是绝对路径软链，"
-                       f"项目一改名就会断。跑 `./install.sh` 换成相对路径")
-        else:
-            out.append(f"  {OK} {rel}（{human}）：{linked}/{len(src_names)} 个 skill 已链接")
+            notes.append(f"      {WARN.rstrip()} {len(absolute)}/{len(good)} 个是绝对路径软链，"
+                         f"项目一改名就会断。跑 `./install.sh` 换成相对路径")
+        if copies:
+            notes.append(f"      {WARN.rstrip()} {len(copies)} 个是手工拷进去的目录"
+                         f"（{'、'.join(copies)}）—— 能用，但不会跟着仓库更新")
+
+        mark = BAD if dead else (OK if not notes else WARN.rstrip())
+        out.append(f"  {mark} {rel}（{human}）：{len(good)}/{total} 个 skill 已链接")
+        out.extend(notes)
     return out
 
 
@@ -214,6 +249,10 @@ def check(*, verbose: bool = False) -> int:
         lines += skill_lines
         if any(BAD in ln for ln in skill_lines):
             todo.append("skill 软链断了 —— 跑一次 `./install.sh` 重建")
+        elif any("install.sh" in ln for ln in skill_lines):
+            # 缺链和死链一样致命：agent 那边同样是「Unknown skill」。
+            # 只在报告里写一行、不进 todo，等于被后面的「一切正常」盖过去。
+            todo.append("skill 软链不全 —— 跑一次 `./install.sh` 补齐")
 
     # profile/ 是个人隐私，不进版本库。缺了不是错误，只是助手会少一些上下文。
     lines.append(f"\n{'个人档案（私密，不进版本库）':─<14}")

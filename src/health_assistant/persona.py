@@ -21,8 +21,9 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
-from .config import KNOWLEDGE_DIR, PROFILE_PATH
+from .config import KNOWLEDGE_DIR, PROFILE_PATH, ROOT
 
 CORE_PATH = KNOWLEDGE_DIR / "coach" / "persona.md"
 PERSONAS_DIR = KNOWLEDGE_DIR / "coach" / "personas"
@@ -106,9 +107,39 @@ def addresses() -> list[str]:
     return [s.strip() for s in raw if isinstance(s, str) and s.strip()]
 
 
+def address_warning() -> str | None:
+    """address 填坏了的话，一句人话说清「没有生效」。没问题返回 None。
+
+    为什么单独开一个函数而不是只在 `warnings()` 里塞一行：调用方要能**区分**
+    「address 是空的（用户明确不要称呼）」和「address 填坏了被丢掉了」。
+    这两种情况 `addresses()` 都返回 `[]`，而 `hc doctor` 原来只看字段在不在，
+    于是手改成 `{"formal": "王先生"}` 会被报成「✅ 称呼：不要称呼（已确认）」——
+    用户明明填了两个称呼，工具却说系统已确认他不要称呼。
+
+    这和忌口那一层的纪律是同一条：解析失败要红着脸报出来，不许打绿勾糊弄。
+    `addresses()` 本身继续容错返回 `[]`（一个称呼字段填坏了不该让整个教练
+    用不了），但**不能静默**。
+    """
+    raw = _profile().get("address")
+    if raw is None or isinstance(raw, str):
+        return None
+    if not isinstance(raw, list):
+        return (f"data/profile.json 的 address 是 {type(raw).__name__} 类型，"
+                f"这里只认字符串或字符串数组（比如 [\"老王\", \"王先生\"]）—— "
+                f"**这个字段没有生效**，教练当成没有称呼。用 hc setup 重填")
+    bad = [x for x in raw if not isinstance(x, str)]
+    if bad:
+        return (f"data/profile.json 的 address 里有 {len(bad)} 项不是文字，已忽略 —— "
+                f"这几项**没有生效**。用 hc setup 重填")
+    return None
+
+
 def warnings() -> list[str]:
     """配置层面的问题。给 doctor 用 —— 它要能说清「为什么没生效」。"""
     out = []
+    addr = address_warning()
+    if addr:
+        out.append(addr)
     raw = _profile().get("persona")
     if raw is not None and normalize(raw) is None:
         out.append(f"data/profile.json 的 persona 填的是「{raw}」，不认识，"
@@ -157,6 +188,39 @@ def load(slug: str | None = None) -> str:
     return "\n\n---\n\n".join(parts) + "\n"
 
 
+def as_dict() -> dict:
+    """当前人格状态的**机器可读**快照。`hc persona --json` 打的就是它。
+
+    为什么必须有这个：`render_list()` 是给人看的清单，措辞随时会调。
+    `scripts/coach` 原来用 sed 从那份展示文本里抠「当前：」和「称呼：」，
+    一改措辞就抠不到 —— 而 sed 抠不到只会安静地给出空串，注入 system prompt 的
+    语气和称呼整段消失，屏幕上一个字的错都没有。agent 于是退回
+    「不知道该怎么称呼」甚至自己编一个，正是那段代码想防的事。
+
+    **这里的键名是接口**，改名等于悄悄弄坏调用方。`address_set` 单独给一个键，
+    是因为「明确不要称呼」和「还没问过」对 agent 是两种不同的指示。
+    """
+    cur = current()
+    return {
+        "tone": cur,
+        "tone_label": label(cur),
+        "tone_file": _rel(tone_path(cur)),
+        "core_file": _rel(CORE_PATH),
+        "addresses": addresses(),
+        "address_set": "address" in _profile(),
+        "address_ok": address_warning() is None,
+        "warnings": warnings(),
+    }
+
+
+def _rel(p) -> str:
+    """路径一律相对仓库根 —— 这些字符串会进 system prompt，绝对路径既长又泄露用户名。"""
+    try:
+        return str(Path(p).relative_to(ROOT))
+    except ValueError:
+        return str(p)
+
+
 def render_list() -> str:
     """给 hc persona 用的清单。"""
     cur = current()
@@ -172,7 +236,13 @@ def render_list() -> str:
     # 称呼跟语气一起显示：它俩是同一件事的两面（怎么开口），
     # 而且用户想核对「教练该怎么叫我」时不会想到去翻 json。
     addrs = addresses()
-    lines.append(f"  称呼：{'、'.join(addrs) if addrs else '不用称呼（address 为空）'}"
+    if not addrs and address_warning():
+        # 「空」和「填坏了」必须分开说。混成一句「不用称呼」，
+        # 用户会以为工具收下了他填的东西。
+        shown = "**没有生效**（address 格式不对，见下面的告警）"
+    else:
+        shown = "、".join(addrs) if addrs else "不用称呼（address 为空）"
+    lines.append(f"  称呼：{shown}"
                  f"　←　data/profile.json 的 address"
                  + ("　第一个是默认" if len(addrs) > 1 else ""))
     lines.append("  切换：hc persona --set 严厉严肃    或    hc setup")

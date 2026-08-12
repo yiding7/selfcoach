@@ -11,6 +11,7 @@ cd "$HERE"
 say() { printf "%s\n" "$*"; }
 ok()  { printf "  ✅ %s\n" "$*"; }
 warn(){ printf "  ⚠️  %s\n" "$*"; }
+bad() { printf "  ❌ %s\n" "$*"; }
 
 say ""
 say "健康助手 · 安装"
@@ -57,8 +58,10 @@ chmod +x scripts/hc 2>/dev/null || true
 link_skills() {
   local target="$1" label="$2" relative="${3:-}"
   mkdir -p "$target"
-  local n=0 fixed=0
+  local n=0 fixed=0 kept=0 total=0
   for d in "$HERE"/skills/*/; do
+    [ -d "$d" ] || continue          # skills/ 空时通配符会原样留下，别去链一个 `*`
+    total=$((total+1))
     local name; name="$(basename "$d")"
     local dest="$target/$name"
     local src="$d"
@@ -71,13 +74,37 @@ link_skills() {
       [ -e "$dest" ] || fixed=$((fixed+1))
       rm -f "$dest"
     elif [ -e "$dest" ]; then
-      warn "$label/$name 已存在且不是软链，跳过"; continue
+      warn "$label/$name 已存在且不是软链，跳过"; kept=$((kept+1)); continue
     fi
     ln -s "$src" "$dest" && n=$((n+1))
   done
-  [ "$n" -gt 0 ] && ok "${label}：链接了 $n 个 skill"
-  [ "$fixed" -gt 0 ] && warn "其中 $fixed 个原来是**死链**（多半是项目改过名或搬过家），已重建"
-  return 0
+
+  # n=0 是「软链一个都没建上」唯一的信号，不能吞掉。
+  #
+  # 之前这里是 `[ "$n" -gt 0 ] && ok …` 后面补一句 `return 0` —— 那句 return
+  # 是为了让假值不触发 set -e，代价是把失败也一起抹平了：仓库放在不支持软链的
+  # 卷上（exFAT / SMB / 某些容器挂载）时七次 ln 全失败，两行提示都不打印，
+  # 脚本继续跑完还打出「下一步：…」并 exit 0。用户以为装好了，
+  # 而报错出现在 agent 那边（Unknown skill: health-coach），跟安装看不出关系。
+  # 改成显式 if：成功路径照旧，失败路径重新变成硬失败。
+  if [ "$n" -gt 0 ]; then
+    ok "${label}：链接了 $n 个 skill"
+    [ "$fixed" -gt 0 ] && warn "其中 $fixed 个原来是**死链**（多半是项目改过名或搬过家），已重建"
+    return 0
+  fi
+  if [ "$total" -gt 0 ] && [ "$kept" -eq "$total" ]; then
+    # 每个位置都已经有同名的真实目录（有人手工拷过去的）—— skill 能用，
+    # 只是不会跟着仓库更新。这不是失败，但要说出来。
+    warn "${label}：$kept 个位置本来就是真实目录，没建任何软链 —— 它们不会跟着仓库更新"
+    return 0
+  fi
+  bad "${label}：一个 skill 都没链上（skills/ 下有 $total 个）"
+  [ "$fixed" -gt 0 ] && bad "原来那 $fixed 个死链已经删掉，也没能重建 —— 现在比之前更空"
+  say "     可能的原因：这个卷不支持软链（exFAT / SMB / 某些容器挂载），"
+  say "     或者 $target 没有写权限。"
+  say "     绕过办法：把仓库放到 APFS / ext4 上，或手工把 skills/ 下各目录拷进"
+  say "     $target —— 拷贝能用，但以后不会跟着仓库更新。"
+  return 1
 }
 
 case "${1:-auto}" in

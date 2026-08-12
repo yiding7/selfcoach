@@ -377,6 +377,80 @@ class TestMedicalBlocksAreNotSilentlyDropped:
         assert out == [dice.FLAGS[0]]
 
 
+class TestAddressPromptTellsTheTruth:
+    """缺陷：⑧ 打「直接回车 = 不要称呼」，而 `_ask_list` 把空输入当「保持不变」。
+
+    两句互相矛盾的指示只隔三行，而唯一有效的做法（填 `-` 或「清空」）埋在
+    `_ask_list` 自己的提示语里。已经设过 address 的人照提示回车，值原样保留，
+    `hc persona` 和 `scripts/coach` 继续注入那个他不想再听见的名字。
+    """
+
+    def _ask(self, monkeypatch, current, typed):
+        answers = iter(typed)
+        monkeypatch.setattr("builtins.input", lambda _: next(answers))
+        return setup_mod._ask_address(list(current))
+
+    def test_enter_on_a_fresh_profile_means_no_address(self, monkeypatch, capsys):
+        """留空是一个合法答案，不是跳过一道必答题 —— 这句提示要留着。"""
+        assert self._ask(monkeypatch, [], [""]) == []
+        assert "直接回车 = 不要称呼" in capsys.readouterr().out
+
+    def test_enter_never_deletes_an_existing_address(self, monkeypatch, capsys):
+        """回车在整个向导里到处都表示「这项不改」，不能只在这一步变成删除。"""
+        assert self._ask(monkeypatch, ["Tim"], [""]) == ["Tim"]
+        shown = capsys.readouterr().out
+        assert "直接回车 = 不要称呼" not in shown, "提示和实际行为对不上"
+        assert "保持现在这几个不变" in shown
+
+    def test_dropping_the_address_is_reachable_and_advertised(self, monkeypatch, capsys):
+        """「我不想被叫名字了」这个意图必须真的能表达出来，而且不用去猜。"""
+        assert self._ask(monkeypatch, ["Tim"], ["-"]) == []
+        assert "填单个 - 或「清空」" in capsys.readouterr().out
+        assert self._ask(monkeypatch, ["Tim"], ["清空"]) == []
+
+    def test_typing_new_names_replaces_them(self, monkeypatch):
+        assert self._ask(monkeypatch, ["Tim"], ["老王 王先生"]) == ["老王", "王先生"]
+
+
+class TestBrokenAddressIsNotReportedAsConfirmed:
+    """缺陷：判据是「字段在不在」，于是手改坏的 address 被报成「已确认不要称呼」。
+
+    和忌口那一层的纪律一致：解析失败要红着脸报出来，不许打绿勾糊弄。
+    """
+
+    def _address_lines(self, tmp_path, monkeypatch, address):
+        from health_assistant import persona
+        p = tmp_path / "profile.json"
+        p.write_text(json.dumps({"address": address}, ensure_ascii=False),
+                     encoding="utf-8")
+        monkeypatch.setattr(setup_mod, "PROFILE_PATH", p)
+        monkeypatch.setattr(persona, "PROFILE_PATH", p)
+        return [ln for ln in setup_mod.render_checklist()
+                if "称呼" in ln or "address" in ln]
+
+    def test_a_hand_mangled_address_is_reported_as_not_taking_effect(
+            self, tmp_path, monkeypatch):
+        lines = self._address_lines(
+            tmp_path, monkeypatch, {"formal": "王先生", "casual": "老王"})
+        text = "\n".join(lines)
+        assert "❌" in text and "没有生效" in text
+        assert "已确认" not in text, "用户填了两个称呼，工具却说系统已确认他不要称呼"
+
+    def test_it_is_said_exactly_once(self, tmp_path, monkeypatch):
+        """同一件事报两遍，用户会以为是两个问题。"""
+        lines = self._address_lines(tmp_path, monkeypatch, {"formal": "王先生"})
+        assert sum("没有生效" in ln for ln in lines) == 1
+
+    def test_an_explicit_empty_still_counts_as_confirmed(self, tmp_path, monkeypatch):
+        """空是答案 —— 不能因为加了这道检查就回去催他填。"""
+        text = "\n".join(self._address_lines(tmp_path, monkeypatch, []))
+        assert "不要称呼（已确认）" in text and "❌" not in text
+
+    def test_a_normal_address_is_shown_as_is(self, tmp_path, monkeypatch):
+        text = "\n".join(self._address_lines(tmp_path, monkeypatch, ["老王"]))
+        assert "老王" in text and "❌" not in text
+
+
 class TestActualFrequencyDenominator:
     """分母必须是**实际有记录的跨度**，不是固定的 8 周。"""
 

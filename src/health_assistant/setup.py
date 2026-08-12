@@ -13,7 +13,8 @@
 ## 一条原则：每个值只有一个真相源
 
 散是可以的，**重是不行的**。同一个数字出现在两个文件里，迟早有一份是旧的 ——
-这次就抓到一个：`profile.json` 写身高 179，而 2026-04 体检实测 178。
+这次就抓到一个：`profile.json` 里的身高和最近一次体检实测差了 1 cm，
+而两处谁都不知道对方存在。
 
 所以分工是硬的：
 
@@ -133,6 +134,28 @@ def _ask_list(prompt: str, current: list[str]) -> list[str]:
     if raw in ("-", "清空", "无", "none", "NONE"):
         return []
     return _split_items(raw)
+
+
+def _ask_address(current: list[str]) -> list[str]:
+    """⑧ 称呼。**留空是一个合法答案，不是跳过一道必答题** —— 有人不喜欢被叫名字。
+
+    提示语必须分「第一次填」和「改已有值」两种情况说。一句通用的
+    「直接回车 = 不要称呼」在已经设过 address 的人身上是**假的**：`_ask_list`
+    把空输入一律当「保持不变」，于是他按提示回车，值原样留着，
+    `hc persona` 和 `scripts/coach` 继续注入那个他不想再听见的名字。
+
+    修的方向是让提示语说真话，而不是让回车去删值 —— 回车在整个向导里到处都表示
+    「这项不改」，只在这一步变成删除操作才是真正危险的不一致。所以已经有值时，
+    把「我不想被叫名字了」这个意图明确指向 `-` / 「清空」。
+    """
+    print("\n⑧ 称呼（教练怎么叫你。可以填多个，第一个是默认）")
+    if current:
+        print("   直接回车 = 保持现在这几个不变。")
+        print("   以后不想被叫名字了：填单个 - 或「清空」，教练就开门见山说事。")
+    else:
+        print("   直接回车 = 不要称呼，教练开门见山说事 —— 这是个正经答案，不是跳过。")
+    print("   多个的用法：正式一点的场合用一个，平时用另一个。")
+    return _ask_list("怎么称呼你？", current)
 
 
 def _ask_multi(prompt: str, options: tuple[str, ...], current: list[str]) -> list[str]:
@@ -289,7 +312,7 @@ def _ask_height(p: dict) -> float | None:
         try:
             val = float(cleaned)
         except ValueError:
-            print("    请填一个数字，单位固定是 cm。比如 179")
+            print("    请填一个数字，单位固定是 cm。比如 175")
             continue
         if not (100 <= val <= 250):
             print(f"    {val} cm 看着不像身高。单位是**厘米**，不是米也不是英寸")
@@ -518,12 +541,7 @@ def run(*, today: dt.date | None = None, dry_run: bool = False) -> int:
         _persona.label(_persona.current()))
     tone = _persona.normalize(tone_label) or _persona.DEFAULT_TONE
 
-    # ⑧ 称呼。**留空是一个合法答案，不是跳过一道必答题** —— 有人不喜欢被叫名字。
-    #    所以提示语里把「不填」和「填几个」摆成对等的两个选项，不诱导。
-    print("\n⑧ 称呼（教练怎么叫你。可以填多个，第一个是默认）")
-    print("   直接回车 = 不要称呼，教练开门见山说事。")
-    print("   多个的用法：正式一点的场合用一个，平时用另一个。")
-    address = _ask_list("怎么称呼你？", _persona.addresses())
+    address = _ask_address(_persona.addresses())
 
     training = _ask_training(p, phase)
 
@@ -640,13 +658,24 @@ def render_checklist() -> list[str]:
                  + "　← persona")
     # 称呼：**空不算缺**，所以判据是「问过没有」（字段在不在），不是「有没有值」。
     # 拿 ⬜ 去催一个已经明确说「不要称呼」的人，是这个项目最不该有的那种噪音。
+    #
+    # 但「字段在不在」不足以下结论：手改成 {"formal": "王先生"} 时字段在、
+    # 解析结果是空，照这个判据会打出「✅ 称呼：不要称呼（已确认）」——
+    # 用户填了两个称呼，工具却说系统已确认他不要称呼。忌口那一层的纪律
+    # （解析失败要红着脸报，不许打绿勾）在这里同样适用。
     asked_address = "address" in p
     addrs = _persona.addresses()
-    lines.append(f"  {mark(asked_address)} 称呼："
-                 + ("、".join(addrs) if addrs
-                    else ("不要称呼（已确认）" if asked_address else "没问过"))
-                 + "　← address")
+    addr_warn = _persona.address_warning()
+    if addr_warn:
+        lines.append(f"  ❌ 称呼：**没有生效** —— {addr_warn}")
+    else:
+        lines.append(f"  {mark(asked_address)} 称呼："
+                     + ("、".join(addrs) if addrs
+                        else ("不要称呼（已确认）" if asked_address else "没问过"))
+                     + "　← address")
     for w in _persona.warnings():
+        if w == addr_warn:
+            continue          # 上面已经红着脸报过了，别再打一遍
         lines.append(f"  ⚠️  {w}")
 
     # ⚠️ 这一行**不能**只看文件在不在。忌口这一层最危险的失败模式是静默失效：

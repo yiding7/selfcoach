@@ -855,6 +855,12 @@ def cmd_persona(args) -> int:
         print(f"✅ 教练语气 → {persona.label(slug)}（knowledge/coach/personas/{slug}.md）")
         print("   下次对话生效。核心人格不变 —— 换的只是措辞，不是规则。")
         return 0
+    if getattr(args, "json", False):
+        # 给 scripts/coach 这类调用方用的稳定接口。人类可读的那份措辞随时会调，
+        # 谁也不该去 sed 它 —— 抠不到时 sed 只会安静地给出空串。
+        import json as _json
+        print(_json.dumps(persona.as_dict(), ensure_ascii=False, indent=2))
+        return 0
     if args.show:
         print(persona.load())
         return 0
@@ -1236,6 +1242,9 @@ def build_parser() -> argparse.ArgumentParser:
                          + " / ".join(f"{n}({s})" for s, (n, _) in _pa.TONES.items()))
     pa.add_argument("--show", action="store_true",
                     help="打印拼装后的完整人格（核心 + 当前语气）")
+    pa.add_argument("--json", action="store_true",
+                    help="机器可读的当前状态（语气、称呼、告警）。"
+                         "脚本要读这些字段就用它，不要去解析上面那份给人看的清单")
     pa.set_defaults(func=cmd_persona)
 
     # journal 模块零依赖、无副作用，可以在这里直接导入，省得把词表抄一遍

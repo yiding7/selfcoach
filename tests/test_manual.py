@@ -59,6 +59,51 @@ class TestHeader:
         r = one("# 2026-07-26 推日\n# 说明行\n杠铃卧推 60x10")
         assert r.session["title"] == "推日"
 
+    def test_a_leading_comment_does_not_eat_the_real_header(self):
+        """首行是注释、第二行才是标题 —— 日期、标题、时长都得落在标题行上。
+
+        「只有第一行 # 算标题」会让这句注释吃掉标题行：日期悄悄变成今天，
+        训练写进错误那一天的文件、出现在错误那一周的报告里，还没法和训记去重。
+        判据必须是「这行有没有解析出日期或时间」，不是「它是第几行」。
+        """
+        r = one("# 补记：忘了当天记\n"
+                "# 2026-08-05 推日 19:05-20:20\n"
+                "杠铃卧推 60x10")
+        s = r.session
+        assert s["date"] == "2026-08-05"
+        assert s["title"] == "推日"
+        assert s["duration_s"] == 75 * 60
+
+    def test_a_title_only_first_line_still_works(self):
+        """只写名字不写日期也是合法标题，但仅限第一行。"""
+        r = one("# 推日\n杠铃卧推 60x10")
+        assert r.session["title"] == "推日"
+        assert r.session["date"] == dt.date.today().isoformat()
+
+    def test_a_title_only_comment_after_the_first_line_is_not_a_header(self):
+        r = one("# 2026-07-26 推日\n杠铃卧推 60x10\n# 换了家健身房")
+        assert r.session["title"] == "推日"
+
+    def test_an_ignored_dated_comment_is_not_silent(self):
+        """带日期的 # 没被当成标题时必须出声 —— 否则用户以为那个日期生效了。"""
+        r = one("# 2026-07-26 推日\n杠铃卧推 60x10\n# 2099-01-01 这不该被当成标题")
+        assert r.session["date"] == "2026-07-26"
+        assert any(i.line_no == 3 and i.severity == "warning" for i in r.issues), \
+            [str(i) for i in r.issues]
+
+    def test_a_dated_comment_after_the_movements_does_not_move_the_date(self):
+        """标题行只能在动作之前。落在后面的日期不生效，而且要说出来。"""
+        r = one("杠铃卧推 60x10\n# 2026-08-05 那天其实是这么练的")
+        assert r.session["date"] == dt.date.today().isoformat()
+        assert any(i.severity == "warning" for i in r.issues), \
+            [str(i) for i in r.issues]
+
+    def test_a_pure_comment_file_does_not_warn_about_the_header(self):
+        """普通注释（不带日期不带时间）就是注释，不该制造噪音。"""
+        r = one("# 补记\n杠铃卧推 60x10\n# 器械换了台\n")
+        assert r.issues == []
+        assert r.session["title"] == "补记"
+
 
 class TestSets:
     def test_basic(self):

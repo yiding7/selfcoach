@@ -27,11 +27,21 @@
     BW / 自重     自重；BW+10 表示自重加 10kg
     T:60s        计时组
     L:.. R:..    单侧，分别记左右
-    #            注释。**只有第一行 # 是标题行**（日期 名字 起止时间，
-                 三样都可省），之后的 # 无论整行还是行尾都只当注释
+    #            注释。标题行是**动作之前第一条带日期或起止时间的 #**（日期
+                 名字 起止时间三样都可省，但只写名字的话仅限文件第一行）；
+                 其余 # 无论整行还是行尾都只当注释
     >            整次训练的备注，可以写多行
 
-哑铃动作按**单只手**的重量写，解析器知道要乘二。
+哑铃动作按**单只手**的重量写（一手 12kg 的哑铃卧推写 `12x10`，不写 24）。
+
+**解析器不会替你乘二，也不该乘。** 它只如实存下你写的数 ——
+「一只手 12kg」到「这一组等效负荷多少」的换算属于分析层，因为那要看动作类型：
+两个哑铃同时推是 ×2，单臂划船和酒杯深蹲是 ×1。见
+`knowledge/movements/implement-loading.json`。
+
+⚠️ 单侧动作要用 `L: R:` 写，才会被标成 `unilateral`。**只写一个重量的哑铃动作
+现在拿不到 `×2`** —— 同一次训练手记进来和训记同步进来，吨位会差一倍。
+这是已知缺口，别拿两条路径的吨位互相比。
 
 可以直接跑的样例见 `examples/workout.txt`；
 体重、围度、饮食这些不走这里，格式见 `examples/README.md`。
@@ -222,6 +232,46 @@ def _parse_movement_line(line: str, line_no: int,
     }
 
 
+def _titled_header(line: str) -> re.Match | None:
+    """一行 `#` 能不能算标题行 —— 判据是它**真的解析出了日期或起止时间**。
+
+    为什么要这道门槛：`HEADER_RE` 每个分组都可选，几乎任何 `#` 开头的行都能匹配，
+    单靠它分不出标题和注释。而「# 补记：忘了当天记」这种注释在速记里再常见不过，
+    被当成标题的后果是日期悄悄变成今天 —— 训练落进错误那一天、出现在错误那一周的
+    报告里，还没法和训记记录去重，而且一句提示都没有。
+    """
+    m = HEADER_RE.match(line)
+    if not m:
+        return None
+    return m if (m.group(1) or (m.group(3) and m.group(4))) else None
+
+
+def _pick_header(lines: list[str]) -> int | None:
+    """定标题行的行号（1 起）。两条规则，顺序有意义：
+
+    1. **动作之前**第一条带日期或起止时间的 `#` 行 —— 那是唯一能和注释区分开的信号
+    2. 都没有的话，只有当文件第一个非空行本身就是 `#` 行，才把它当纯标题行
+       （`# 推日` 这种只写名字的写法是合法的，不能丢）
+
+    必须先扫一遍再解析：「首行注释 + 第二行真标题」要让后者赢，边走边定就只能
+    让第一行赢。而「后一个标题行赢」也不行 —— 那会让文件末尾随手一句
+    `# 换了家健身房` 顶掉用户填的日期和标题。
+    """
+    first_hash: int | None = None
+    for no, raw in enumerate(lines, 1):
+        s = raw.strip()
+        if not s:
+            continue
+        if not s.startswith("#"):
+            break                      # 动作/备注开始了，标题行不可能在后面
+        if first_hash is None:
+            # 走到这里说明文件第一个非空行就是 # —— 规则 2 的入口
+            first_hash = no
+        if _titled_header(s):
+            return no
+    return first_hash
+
+
 def parse(text: str, *, default_date: dt.date | None = None) -> ParseResult:
     issues: list[ParseIssue] = []
     date = default_date or dt.date.today()
@@ -229,23 +279,29 @@ def parse(text: str, *, default_date: dt.date | None = None) -> ParseResult:
     start_ms = end_ms = None
     notes: list[str] = []
     movements: list[dict] = []
-    header_seen = False
+    lines = text.splitlines()
+    header_no = _pick_header(lines)
 
-    for line_no, raw in enumerate(text.splitlines(), 1):
+    for line_no, raw in enumerate(lines, 1):
         line = raw.split("#", 1)[0].strip() if not raw.strip().startswith("#") else raw.strip()
         if not line:
             continue
 
         if line.startswith("#"):
-            # **只有第一行 # 是标题行，后面的一律当注释。**
-            #
-            # 之前每一行 # 都往 HEADER_RE 里过一遍，最后一行赢 —— 于是在文件
-            # 中间或末尾随手写一句 `# 换了家健身房`，标题就被它悄悄顶掉了，
-            # 日期也可能跟着变。而写注释是速记文本里最自然不过的事。
-            # 静默改掉用户填的字段是这个项目最不能接受的一类失败。
-            if header_seen:
+            # 标题行只有一条，由 `_pick_header()` 事先定好；其余 # 都是注释。
+            # 两个方向的静默都不能接受：注释顶掉用户填的日期和标题，
+            # 或者真正的标题行因为前面有句注释而被无视。
+            if line_no != header_no:
+                if _titled_header(line):
+                    # 这行看着像标题（带日期或时间）却没被采用 —— 必须说出来。
+                    # 静默忽略和静默覆盖一样糟：用户会以为这个日期生效了。
+                    where = (f"标题行是第 {header_no} 行" if header_no
+                             else f"标题行只能写在动作之前，日期用的是 {date.isoformat()}")
+                    issues.append(ParseIssue(
+                        line_no, "warning",
+                        f"这行也带日期或时间，但只当注释处理（{where}）",
+                        "一次训练只有一个标题行；要改日期就改标题行"))
                 continue
-            header_seen = True
             m = HEADER_RE.match(line)
             if m:
                 if m.group(1):
