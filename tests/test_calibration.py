@@ -6,6 +6,9 @@
 2. `ignore` 只关掉对比，**不能顺手把训练量也抹掉** —— 那些组是真的练了
 3. 检测不能吵。新手期的正常进步（小重量、长间隔）不该报警，
    否则用户三天就把这个功能关了
+
+夹具里的重量、次数、日期**全是编的，且一律取整** —— 这个仓库是公开的，
+一份带小数的负荷或一个真实日期就是一条别人的训练记录。纪律见 `CLAUDE.md`。
 """
 
 from __future__ import annotations
@@ -48,18 +51,18 @@ class TestRawDataIsUntouched:
     """最重要的一条：原始记录永远不改。"""
 
     def test_apply_rules_does_not_mutate_input(self, rules_file):
-        raw = [sess("2026-07-16", 40, 10)]
+        raw = [sess("2026-06-01", 50, 10)]
         before = copy.deepcopy(raw)
         calibration.add_rule("面拉", "scale", ratio=0.5)
         calibration.apply_rules(raw)
         assert raw == before
 
     def test_scaling_shows_up_only_in_the_read_path(self, rules_file):
-        raw = [sess("2026-07-16", 40, 10)]
+        raw = [sess("2026-06-01", 50, 10)]
         calibration.add_rule("面拉", "scale", ratio=0.5)
         st = stats_of(raw)[0]
-        assert st.movements[0].top_load_kg == pytest.approx(20.0)
-        assert raw[0]["movements"][0]["sets"][0]["weight_kg"] == 40
+        assert st.movements[0].top_load_kg == pytest.approx(25.0)
+        assert raw[0]["movements"][0]["sets"][0]["weight_kg"] == 50
         # 折算过的一定留痕 —— 一个被悄悄改过的数字比一个明显错的数字危险
         assert st.movements[0].calib_ratio == 0.5
 
@@ -94,7 +97,7 @@ class TestScopeAndSafety:
 
         对它们乘系数只会造出一个假数字，所以规则命中了也不动。
         """
-        raw = [sess("2026-07-16", 20, 10, name="引体向上（辅助）", exetype=exetype)]
+        raw = [sess("2026-06-01", 20, 10, name="引体向上（辅助）", exetype=exetype)]
         calibration.add_rule("引体向上（辅助）", "scale", ratio=0.5)
         out = calibration.apply_rules(raw)
         assert out[0]["movements"][0]["sets"][0]["weight_kg"] == 20
@@ -113,9 +116,9 @@ class TestIgnoreKeepsTheVolume:
     """`ignore` 的语义是「这个负荷数字不能跨两次比」，不是「这次没练」。"""
 
     def test_excluded_from_pairing_but_counted_in_volume(self, rules_file):
-        raw = [sess("2026-07-16", 40, 10), sess("2026-08-10", 18, 10)]
-        calibration.add_rule("面拉", "ignore", date_from="2026-08-10",
-                             date_to="2026-08-10")
+        raw = [sess("2026-06-01", 50, 10), sess("2026-06-26", 25, 10)]
+        calibration.add_rule("面拉", "ignore", date_from="2026-06-26",
+                             date_to="2026-06-26")
         st = stats_of(raw)
         c = compare_group(st[1], [st[0]], "肩")
         assert c.paired_count == 0
@@ -126,7 +129,7 @@ class TestIgnoreKeepsTheVolume:
 
     def test_exclusion_is_visible_not_silent(self, rules_file):
         """静默排除等于伪造了一个「什么都没发生」的对比。"""
-        raw = [sess("2026-07-16", 40, 10), sess("2026-08-10", 18, 10)]
+        raw = [sess("2026-06-01", 50, 10), sess("2026-06-26", 25, 10)]
         calibration.add_rule("面拉", "ignore")
         st = stats_of(raw)
         assert compare_group(st[1], [st[0]], "肩").excluded == ["面拉"]
@@ -134,8 +137,8 @@ class TestIgnoreKeepsTheVolume:
 
 class TestDetection:
     def test_catches_the_pulley_case(self, rules_file):
-        """2026-08-10 那次真实的面拉：40kg → 18kg，两次都是 32 次。"""
-        raw = [sess("2026-07-16", 40, 32 / 3), sess("2026-08-10", 18, 32 / 3)]
+        """要抓的形状：面拉 50kg → 25kg，总次数两次都是 30 —— 换了把尺。"""
+        raw = [sess("2026-06-01", 50, 10), sess("2026-06-26", 25, 10)]
         jumps = calibration.detect_jumps(stats_of(raw))
         assert len(jumps) == 1
         assert jumps[0].movement == "面拉"
@@ -144,7 +147,7 @@ class TestDetection:
 
     def test_quiet_when_reps_moved_too(self, rules_file):
         """重量减半、次数翻倍是有意换次数区间，不是换尺。"""
-        raw = [sess("2026-07-16", 40, 6), sess("2026-08-10", 18, 18)]
+        raw = [sess("2026-06-01", 50, 6), sess("2026-06-26", 25, 18)]
         assert calibration.detect_jumps(stats_of(raw)) == []
 
     def test_quiet_for_small_absolute_loads(self, rules_file):
@@ -164,16 +167,16 @@ class TestDetection:
         assert calibration.detect_jumps(stats_of(raw)) == []
 
     def test_resolved_jumps_drop_out_of_unresolved(self, rules_file):
-        raw = [sess("2026-07-16", 40, 32 / 3), sess("2026-08-10", 18, 32 / 3)]
+        raw = [sess("2026-06-01", 50, 10), sess("2026-06-26", 25, 10)]
         st = stats_of(raw)
         assert len(calibration.unresolved(st)) == 1
-        calibration.add_rule("面拉", "confirm", date_from="2026-08-10",
-                             date_to="2026-08-10")
+        calibration.add_rule("面拉", "confirm", date_from="2026-06-26",
+                             date_to="2026-06-26")
         assert calibration.unresolved(stats_of(raw)) == []
 
     def test_confirm_changes_no_number(self, rules_file):
         """「我看过了，这是真的」只该改预警状态，不该碰任何数据。"""
-        raw = [sess("2026-08-10", 18, 10)]
+        raw = [sess("2026-06-26", 25, 10)]
         plain = stats_of(raw)[0].movements[0].top_load_kg
         calibration.add_rule("面拉", "confirm")
         assert stats_of(raw)[0].movements[0].top_load_kg == plain
@@ -202,9 +205,9 @@ class TestExclusionIsSymmetric:
         后果是输出里同时出现「本次没做：面拉」和「未参与对比：面拉」，
         还会生成一条「建议补回」，让用户去补一个他当天明明做了的动作。
         """
-        raw = [sess("2026-07-16", 40, 10), sess("2026-08-10", 18, 10)]
-        calibration.add_rule("面拉", "ignore", date_from="2026-08-10",
-                             date_to="2026-08-10")
+        raw = [sess("2026-06-01", 50, 10), sess("2026-06-26", 25, 10)]
+        calibration.add_rule("面拉", "ignore", date_from="2026-06-26",
+                             date_to="2026-06-26")
         st = stats_of(raw)
         c = compare_group(st[1], [st[0]], "肩")
         assert c.excluded == ["面拉"]
@@ -212,9 +215,9 @@ class TestExclusionIsSymmetric:
         assert c.added == []
 
     def test_ignoring_only_the_anchor_date_is_also_symmetric(self, rules_file):
-        raw = [sess("2026-07-16", 40, 10), sess("2026-08-10", 18, 10)]
-        calibration.add_rule("面拉", "ignore", date_from="2026-07-16",
-                             date_to="2026-07-16")
+        raw = [sess("2026-06-01", 50, 10), sess("2026-06-26", 25, 10)]
+        calibration.add_rule("面拉", "ignore", date_from="2026-06-01",
+                             date_to="2026-06-01")
         st = stats_of(raw)
         c = compare_group(st[1], [st[0]], "肩")
         assert c.excluded == ["面拉"]
@@ -224,9 +227,9 @@ class TestExclusionIsSymmetric:
         """「建议补回」是从 comparison.dropped 来的，所以这条一起锁上。"""
         from health_assistant.analytics.prescribe import prescribe_group
 
-        raw = [sess("2026-07-16", 40, 10), sess("2026-08-10", 18, 10)]
-        calibration.add_rule("面拉", "ignore", date_from="2026-08-10",
-                             date_to="2026-08-10")
+        raw = [sess("2026-06-01", 50, 10), sess("2026-06-26", 25, 10)]
+        calibration.add_rule("面拉", "ignore", date_from="2026-06-26",
+                             date_to="2026-06-26")
         st = stats_of(raw)
         rx = prescribe_group("肩", st[1], compare_group(st[1], [st[0]], "肩"))
         assert not any("补回" in m.change for m in rx.movements)
@@ -239,20 +242,20 @@ class TestResolutionDoesNotLeakForward:
 
         用户确认了一次真实涨幅，下个月换机位造成的假涨幅就再也不会预警。
         """
-        raw = [sess("2026-07-16", 40, 10),
-               sess("2026-08-10", 18, 10),
-               sess("2026-08-25", 40, 10)]
-        calibration.add_rule("面拉", "confirm", date_from="2026-08-10",
-                             date_to="2026-08-10")
+        raw = [sess("2026-06-01", 50, 10),
+               sess("2026-06-26", 25, 10),
+               sess("2026-07-11", 50, 10)]
+        calibration.add_rule("面拉", "confirm", date_from="2026-06-26",
+                             date_to="2026-06-26")
         st = stats_of(raw)
         pending = calibration.unresolved(st)
-        assert [j.date for j in pending] == ["2026-08-25"], \
+        assert [j.date for j in pending] == ["2026-07-11"], \
             "给 08-10 写的规则把 08-25 那个新跳变也吞掉了"
 
     def test_a_range_rule_covering_both_ends_still_resolves(self, rules_file):
-        raw = [sess("2026-07-16", 40, 10), sess("2026-08-10", 18, 10)]
-        calibration.add_rule("面拉", "confirm", date_from="2026-07-01",
-                             date_to="2026-08-31")
+        raw = [sess("2026-06-01", 50, 10), sess("2026-06-26", 25, 10)]
+        calibration.add_rule("面拉", "confirm", date_from="2026-05-01",
+                             date_to="2026-07-31")
         assert calibration.unresolved(stats_of(raw)) == []
 
 

@@ -6,7 +6,11 @@
 
 还有一条更要命的：**样例绝不能待在 `data/` 里。**
 `store` 是按 `data/**/*.jsonl` 通配读的，样例放进去会被当成真实体重、
-真实训练算进趋势 —— 一个凭空多出来的 80.4 kg 会污染目标摄入量的 7 日均值。
+真实训练算进趋势 —— 一个凭空多出来的体重点会污染目标摄入量的 7 日均值。
+
+反方向的漏也一样致命：`examples/` **进版本库**，而 `data/` / `profile/` 永不进。
+真实记录被抄进样例就等于把健康数据公开推出去了，而且从此看不出来 ——
+所以下面钉住「样例里的数字必须齐整到一眼假」。
 """
 
 from __future__ import annotations
@@ -28,6 +32,10 @@ METRICS = {"steps", "sleep_h", "resting_hr", "hrv", "alcohol", "water",
            "exercise_min", "bmi"}
 MEALS = {"breakfast", "lunch", "dinner", "snack", "other"}
 
+# 样例只用这两个虚构日期。真实记录带着真实日期，钉住日期就等于钉住
+# 「这几行不是从 data/ 里抄来的」—— 换成别的日期得先改这里，改的人自然会想一下。
+EXAMPLE_DATES = {"2026-01-01", "2026-01-02"}
+
 
 def _rows(name: str) -> list[dict]:
     path = EXAMPLES / name
@@ -45,6 +53,21 @@ class TestExamplesStayOutOfData:
             f"样例请放 examples/")
 
 
+class TestExamplesCarryNoRealRecords:
+    """`examples/` 进版本库，`data/` 和 `profile/` 永不进 —— 方向别搞反。
+
+    这里没法直接比对 `data/`（那些文件在 CI 里根本不存在），所以退一步钉日期。
+    """
+
+    @pytest.mark.parametrize("name", ["body.jsonl", "apple-health.jsonl",
+                                      "meals.jsonl"])
+    def test_dates_are_the_fabricated_ones(self, name):
+        for r in _rows(name):
+            assert r["date"] in EXAMPLE_DATES, (
+                f"{name} 里出现了 {r['date']} —— 样例日期只能是 {EXAMPLE_DATES}。"
+                f"这条像是从真实记录里抄的，抄进 examples/ 就是公开推出去了")
+
+
 class TestWorkoutShorthand:
     def test_the_example_parses_cleanly(self):
         text = (EXAMPLES / "workout.txt").read_text(encoding="utf-8")
@@ -58,7 +81,7 @@ class TestWorkoutShorthand:
         r = manual.parse((EXAMPLES / "workout.txt").read_text(encoding="utf-8"))
         s = r.session
         assert s["title"], "标题行没解析出来 —— 说明 # 那一行被后面的注释顶掉了"
-        assert s["date"] == "2026-08-11"
+        assert s["date"] == "2026-01-01"
         assert len(s["movements"]) >= 5
         assert any(st.get("kind") == "warmup"
                    for mv in s["movements"] for st in mv["sets"]), "没演示热身组 ~"

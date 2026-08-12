@@ -101,9 +101,9 @@ class TestAvoidLineRewrite:
 class TestConflictDetection:
     def test_flags_a_height_mismatch(self, paths):
         (paths["dir"] / "personal-context.md").write_text(
-            "## 1. 基本信息\n\n- 男，33 岁，身高 **179 cm**（早期自述）\n", encoding="utf-8")
-        out = setup_mod._conflicts({"height_cm": 178})
-        assert len(out) == 1 and "179" in out[0] and "178" in out[0]
+            "## 1. 基本信息\n\n- 男，30 岁，身高 **175 cm**（早期自述）\n", encoding="utf-8")
+        out = setup_mod._conflicts({"height_cm": 174})
+        assert len(out) == 1 and "175" in out[0] and "174" in out[0]
 
     def test_silent_when_they_agree(self, paths):
         (paths["dir"] / "personal-context.md").write_text(
@@ -328,7 +328,7 @@ class TestWeightDoesNotDoubleCount:
         monkeypatch.setattr(setup_mod.store, "load_body", lambda **kw: existing)
         answers = iter(typed)
         monkeypatch.setattr("builtins.input", lambda _: next(answers))
-        return setup_mod._ask_weight(dt.date(2026, 8, 10))
+        return setup_mod._ask_weight(dt.date(2026, 1, 10))
 
     def rec(self, date, value, source="xunji"):
         return {"date": date, "value": value, "type": "weight",
@@ -349,7 +349,7 @@ class TestWeightDoesNotDoubleCount:
         assert self._ask(monkeypatch, [], typed=("75.0 公斤",))["value"] == 75.0
 
     def test_out_of_range_reprompts_instead_of_converting(self, monkeypatch):
-        """填了斤（160）或磅会落在合理区间里，工具没法分辨 —— 那是用户的责任。
+        """填了斤（150）或磅会落在合理区间里，工具没法分辨 —— 那是用户的责任。
         这里只锁明显不可能的值：重问，绝不替他换算。
         """
         assert self._ask(monkeypatch, [], typed=("8", "75.0"))["value"] == 75.0

@@ -144,12 +144,15 @@ class TestE1RM:
 
 class TestRollingWeight:
     def test_damps_noise(self):
-        """平稳基线上插一个 +1.8kg 的单日尖峰。数字是编的，形状不是。"""
+        """平稳的基线上插一个 +1.8kg 的单日尖峰 —— 这是体重日间噪声的真实量级，
+        移动均线必须把它压回 0.6kg 以内，否则叙述会把一次水分波动读成长胖。
+        数字是编的，形状不是：一天涨完、一天退回。
+        """
         records = [{"type": "weight", "date": d, "value": v} for d, v in [
             ("2026-01-05", 75.0), ("2026-01-06", 75.0), ("2026-01-07", 75.0),
             ("2026-01-08", 76.8), ("2026-01-09", 75.0), ("2026-01-10", 75.0)]]
         trend = rolling_weight(records, window=7)
-        smoothed = dict(trend)["2026-07-16"]
+        smoothed = dict(trend)["2026-01-08"]
         assert 75.0 < smoothed < 75.6, "离群点应当被显著压制"
 
     def test_empty(self):

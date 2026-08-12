@@ -14,7 +14,7 @@ from health_assistant.analytics import cardio as C
 def _profile(tmp_path, monkeypatch):
     """固定生理参数，让心率区间可预测。"""
     p = tmp_path / "profile.json"
-    p.write_text(json.dumps({"birth_year": 1993, "height_cm": 179, "sex": "male"}),
+    p.write_text(json.dumps({"birth_year": 1993, "height_cm": 175, "sex": "male"}),
                  encoding="utf-8")
     monkeypatch.setattr(C, "PROFILE_PATH", p)
     C._profile.cache_clear()
@@ -69,16 +69,16 @@ class TestZones:
 
 class TestBouts:
     RAW = [{
-        "date": "2026-08-04", "movements": [{
+        "date": "2026-01-05", "movements": [{
             "name": "爬楼梯", "exetype": "cardio",
             "sets": [{"done": True,
-                      "hr": {"avg": 153.0, "max": 174.0, "step_s": 18.0,
-                             "values": [150] * 47},
-                      "metrics": {"kcal": 168.0}}]}]}]
+                      "hr": {"avg": 150.0, "max": 170.0, "step_s": 20.0,
+                             "values": [150] * 45},
+                      "metrics": {"kcal": 200.0}}]}]}]
 
     def test_extracts_cardio_only(self, monkeypatch):
         monkeypatch.setattr(C, "age_now", lambda today=None: 33)
-        raw = self.RAW + [{"date": "2026-08-03", "movements": [
+        raw = self.RAW + [{"date": "2026-01-04", "movements": [
             {"name": "杠铃卧推", "exetype": None, "sets": [{"done": True}]}]}]
         bouts = C.extract_bouts([], raw)
         assert len(bouts) == 1 and bouts[0].name == "爬楼梯"
@@ -92,7 +92,7 @@ class TestBouts:
     def test_high_intensity_flag(self, monkeypatch):
         monkeypatch.setattr(C, "age_now", lambda today=None: 33)
         b = C.extract_bouts([], self.RAW)[0]
-        assert b.is_high_intensity          # 153/185 = 83%
+        assert b.is_high_intensity          # 150/185 = 81%
         assert b.zone.startswith("Z4")
 
 
@@ -120,7 +120,7 @@ class TestWeeklyEvaluation:
 
     def test_no_cardio(self, monkeypatch):
         monkeypatch.setattr(C, "age_now", lambda today=None: 33)
-        wk = C.summarize([], "2026-08-04")
+        wk = C.summarize([], "2026-01-05")
         assert C.evaluate(wk, [])[0]["kind"] == "info"
 
 
@@ -129,13 +129,13 @@ class TestAppleHealthImport:
 <HealthData locale="zh_CN">
  <Record type="HKQuantityTypeIdentifierBodyMass" startDate="2026-01-02 08:00:00 +0800" endDate="2026-01-02 08:00:00 +0800" value="75" unit="kg"/>
  <Record type="HKQuantityTypeIdentifierBodyMass" startDate="2026-01-02 21:00:00 +0800" endDate="2026-01-02 21:00:00 +0800" value="77" unit="kg"/>
- <Record type="HKQuantityTypeIdentifierNumberOfAlcoholicBeverages" startDate="2026-07-28 20:00:00 +0800" endDate="2026-07-28 20:00:00 +0800" value="3"/>
- <Record type="HKQuantityTypeIdentifierNumberOfAlcoholicBeverages" startDate="2026-07-28 22:00:00 +0800" endDate="2026-07-28 22:00:00 +0800" value="3"/>
- <Record type="HKQuantityTypeIdentifierStepCount" startDate="2026-08-03 09:00:00 +0800" endDate="2026-08-03 10:00:00 +0800" value="3200"/>
- <Record type="HKQuantityTypeIdentifierStepCount" startDate="2026-08-03 18:00:00 +0800" endDate="2026-08-03 19:00:00 +0800" value="4100"/>
- <Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepCore" startDate="2026-08-02 23:40:00 +0800" endDate="2026-08-03 03:00:00 +0800"/>
- <Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepREM" startDate="2026-08-03 03:00:00 +0800" endDate="2026-08-03 06:30:00 +0800"/>
- <Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAwake" startDate="2026-08-03 06:30:00 +0800" endDate="2026-08-03 07:00:00 +0800"/>
+ <Record type="HKQuantityTypeIdentifierNumberOfAlcoholicBeverages" startDate="2026-01-01 20:00:00 +0800" endDate="2026-01-01 20:00:00 +0800" value="2"/>
+ <Record type="HKQuantityTypeIdentifierNumberOfAlcoholicBeverages" startDate="2026-01-01 22:00:00 +0800" endDate="2026-01-01 22:00:00 +0800" value="2"/>
+ <Record type="HKQuantityTypeIdentifierStepCount" startDate="2026-01-03 09:00:00 +0800" endDate="2026-01-03 10:00:00 +0800" value="3000"/>
+ <Record type="HKQuantityTypeIdentifierStepCount" startDate="2026-01-03 18:00:00 +0800" endDate="2026-01-03 19:00:00 +0800" value="4000"/>
+ <Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepCore" startDate="2026-01-02 23:00:00 +0800" endDate="2026-01-03 03:00:00 +0800"/>
+ <Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepREM" startDate="2026-01-03 03:00:00 +0800" endDate="2026-01-03 06:00:00 +0800"/>
+ <Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAwake" startDate="2026-01-03 06:00:00 +0800" endDate="2026-01-03 06:30:00 +0800"/>
 </HealthData>
 """
 
@@ -153,18 +153,18 @@ class TestAppleHealthImport:
 
     def test_alcohol_summed_per_day(self, xml_file):
         from health_assistant.apple_health import parse
-        assert parse(xml_file, log=lambda *a: None)["alcohol"]["2026-07-28"] == 6.0
+        assert parse(xml_file, log=lambda *a: None)["alcohol"]["2026-01-01"] == 4
 
     def test_steps_summed(self, xml_file):
         from health_assistant.apple_health import parse
-        assert parse(xml_file, log=lambda *a: None)["steps"]["2026-08-03"] == 7300
+        assert parse(xml_file, log=lambda *a: None)["steps"]["2026-01-03"] == 7000
 
     def test_sleep_excludes_awake_and_lands_on_wake_day(self, xml_file):
         from health_assistant.apple_health import parse
         d = parse(xml_file, log=lambda *a: None)
         # 4:00 + 3:00 = 7h，清醒段不计；跨夜归到起床那天
         assert d["sleep_h"]["2026-01-03"] == pytest.approx(7.0, abs=0.02)
-        assert "2026-08-02" not in d["sleep_h"]
+        assert "2026-01-02" not in d["sleep_h"]
 
     def test_reads_zip(self, tmp_path, xml_file):
         from health_assistant.apple_health import parse
@@ -175,8 +175,8 @@ class TestAppleHealthImport:
 
     def test_since_filter(self, xml_file):
         from health_assistant.apple_health import parse
-        d = parse(xml_file, since="2026-08-01", log=lambda *a: None)
-        assert "alcohol" not in d          # 7/28 早于 since
+        d = parse(xml_file, since="2026-01-02", log=lambda *a: None)
+        assert "alcohol" not in d          # 1/1 早于 since
         assert "weight" in d
 
     def test_english_export_name(self, tmp_path):

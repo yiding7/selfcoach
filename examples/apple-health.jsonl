@@ -1,7 +1,7 @@
-{"date":"2026-08-11","metric":"steps","value":12994.0}
+{"date":"2026-01-01","metric":"steps","value":12000.0}
 {"date":"2026-01-01","metric":"sleep_h","value":8.0}
-{"date":"2026-08-11","metric":"resting_hr","value":60.0}
-{"date":"2026-08-11","metric":"hrv","value":42.0}
-{"date":"2026-08-11","metric":"water","value":2600.0}
-{"date":"2026-08-11","metric":"exercise_min","value":50.0}
-{"date":"2026-08-10","metric":"alcohol","value":3.0}
+{"date":"2026-01-01","metric":"resting_hr","value":50.0}
+{"date":"2026-01-01","metric":"hrv","value":60.0}
+{"date":"2026-01-01","metric":"water","value":2000.0}
+{"date":"2026-01-01","metric":"exercise_min","value":30.0}
+{"date":"2026-01-02","metric":"alcohol","value":2.0}

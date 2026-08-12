@@ -18,6 +18,10 @@ FACTS = {
     "findings": {"优点": [{"text": "胸的估算 1RM 从 50kg 提升到 60kg（+20%）",
                            "metrics": {"before": 50, "after": 60, "pct": 20}}],
                  "缺点": [], "改进点": [], "信息": []},
+    # change_kg / rate_pct_per_week 是这份夹具里**唯一**留着小数的两个数：
+    # 一周体重变化不到 1 kg 是常态，取整会造出假数据；而且 `_ALLOWED_BARE`
+    # 放行 1–10，取成整数会让 test_accepts_absolute_value_of_negative 变成摆设。
+    # 两个数都是编的，不是从 data/ 里抄的 —— tests/test_no_real_data.py 盯着这一点。
     "body": {"change_kg": -0.4, "rate_pct_per_week": -0.35, "latest_trend_kg": 75},
 }
 
