@@ -34,8 +34,9 @@ knowledge/library/*
 !knowledge/library/*/
 knowledge/library/*/*
 !knowledge/library/*/.gitkeep
-# 想跨设备同步的话，在 data/ 里单独 init 一个私有仓库，
-# 或者用 `hc export` 打包带走。详见 README。
+# 想跨设备同步的话，在 data/ 里单独 init 一个私有仓库。
+# 想带走就直接拷 data/ 和 profile/ —— 都是纯文本，没有别处的副本。
+# 详见 README 的「技术栈与数据流转」。
 data/
 
 # ── 生成物 ────────────────────────────────────────────

@@ -211,9 +211,11 @@ def prescribe_group(group: str, current: SessionStats,
         lo, hi = rep_range(m.name)
         step = increment_for(m.name)
         avg_reps = (m.reps_total / m.sets_done) if m.sets_done else 0
+        # top_load 本身已经是**单侧/单器械**口径（和用户在器械上看到的一致），
+        # 这里不再折算。此前这里有一句 `load / 2.0` —— 那是在给
+        # 「顶组用双侧合计、1RM 用单侧」这个矛盾打补丁。矛盾在
+        # metrics.per_side_load_kg 里修掉了，补丁必须同时撤掉，否则会除两次。
         load = m.top_load_kg
-        if m.unilateral and load is not None:
-            load = load / 2.0    # 展示单侧重量，和用户在器械上看到的一致
 
         # 自重类动作不显示折算出来的公斤数 —— 那不是器械上能设置的数字，
         # 显示出来只会误导。辅助类动作更要小心：配重越大越轻松，

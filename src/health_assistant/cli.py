@@ -653,6 +653,17 @@ def cmd_log(args) -> int:
 
     from . import manual
 
+    if getattr(args, "syntax", False):
+        # 速记语法的唯一真相源是 manual 模块的 docstring —— 那份就贴在
+        # 解析器旁边，改语法时不可能忘了改它。这里直接打出来，
+        # 而不是在 CLI 里再抄一份（抄一份就会有一份是旧的）。
+        print((manual.__doc__ or "").strip())
+        print("\n" + "─" * 56)
+        print("可以直接跑的样例：examples/workout.txt")
+        print("  ./scripts/hc log --file examples/workout.txt --dry-run")
+        print("其他数据（体重/围度/饮食/步数）怎么手工写：examples/README.md")
+        return 0
+
     if args.file == "-":
         if sys.stdin.isatty():
             print("从标准输入读速记文本，Ctrl-D 结束：\n")
@@ -843,6 +854,12 @@ def cmd_persona(args) -> int:
             return 1
         print(f"✅ 教练语气 → {persona.label(slug)}（knowledge/coach/personas/{slug}.md）")
         print("   下次对话生效。核心人格不变 —— 换的只是措辞，不是规则。")
+        return 0
+    if getattr(args, "json", False):
+        # 给 scripts/coach 这类调用方用的稳定接口。人类可读的那份措辞随时会调，
+        # 谁也不该去 sed 它 —— 抠不到时 sed 只会安静地给出空串。
+        import json as _json
+        print(_json.dumps(persona.as_dict(), ensure_ascii=False, indent=2))
         return 0
     if args.show:
         print(persona.load())
@@ -1196,6 +1213,8 @@ def build_parser() -> argparse.ArgumentParser:
     lg.add_argument("--date", help="日期，默认取文本里的或今天")
     lg.add_argument("--dry-run", action="store_true", help="只解析并展示，不写入")
     lg.add_argument("--yes", action="store_true", help="跳过确认直接写入")
+    lg.add_argument("--syntax", action="store_true",
+                    help="打印速记语法和样例文件位置，不读输入")
     lg.set_defaults(func=cmd_log)
 
     cf = sub.add_parser("classify", help="查看或教会动作的肌群归属")
@@ -1223,6 +1242,9 @@ def build_parser() -> argparse.ArgumentParser:
                          + " / ".join(f"{n}({s})" for s, (n, _) in _pa.TONES.items()))
     pa.add_argument("--show", action="store_true",
                     help="打印拼装后的完整人格（核心 + 当前语气）")
+    pa.add_argument("--json", action="store_true",
+                    help="机器可读的当前状态（语气、称呼、告警）。"
+                         "脚本要读这些字段就用它，不要去解析上面那份给人看的清单")
     pa.set_defaults(func=cmd_persona)
 
     # journal 模块零依赖、无副作用，可以在这里直接导入，省得把词表抄一遍

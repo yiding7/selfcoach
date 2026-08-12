@@ -1,0 +1,4 @@
+{"schema":"ha.meal/1","id":"manual:2026-01-01:breakfast:1","source":"manual","date":"2026-01-01","meal":"breakfast","name":"燕麦粥","amount":200,"unit":"g","kcal":142,"protein_g":6.0,"fat_g":4.0,"carb_g":24.0,"confidence":"measured"}
+{"schema":"ha.meal/1","id":"manual:2026-01-01:lunch:1","source":"manual","date":"2026-01-01","meal":"lunch","name":"鸡胸肉","amount":100,"unit":"g","kcal":165,"protein_g":31.0,"fat_g":4.0,"carb_g":0,"confidence":"measured"}
+{"schema":"ha.meal/1","id":"manual:2026-01-01:lunch:2","source":"manual","date":"2026-01-01","meal":"lunch","name":"米饭","amount":200,"unit":"g","kcal":260,"protein_g":6.0,"fat_g":0,"carb_g":56.0,"confidence":"estimated"}
+{"schema":"ha.meal/1","id":"manual:2026-01-01:dinner:1","source":"manual","date":"2026-01-01","meal":"dinner","name":"番茄牛腩","amount":1,"unit":"份","kcal":400,"protein_g":25.0,"fat_g":25.0,"carb_g":15.0,"confidence":"estimated"}

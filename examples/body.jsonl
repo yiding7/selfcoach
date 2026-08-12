@@ -1,0 +1,5 @@
+{"schema":"ha.body/1","id":"self:weight:2026-01-01","source":"self","date":"2026-01-01","type":"weight","value":70.0,"unit":"kg","label":"体重"}
+{"schema":"ha.body/1","id":"self:weist:2026-01-01","source":"self","date":"2026-01-01","type":"weist","value":80.0,"unit":"cm","label":"腰围"}
+{"schema":"ha.body/1","id":"self:neck:2026-01-01","source":"self","date":"2026-01-01","type":"neck","value":35.0,"unit":"cm","label":"颈围"}
+{"schema":"ha.body/1","id":"self:bodyfat:2026-01-01","source":"self","date":"2026-01-01","type":"bodyfat","value":20.0,"unit":"%","label":"体脂率"}
+{"schema":"ha.body/1","id":"tailor:bot:2026-01-02","source":"tailor","date":"2026-01-02","type":"bot","value":90.0,"unit":"cm","label":"臀围"}

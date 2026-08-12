@@ -11,6 +11,7 @@ import statistics
 from dataclasses import dataclass, field
 from functools import lru_cache
 
+from .. import loading
 from ..config import KNOWLEDGE_DIR
 from ..taxonomy import Classification, classify_movement
 
@@ -83,49 +84,127 @@ def is_bodyweight(movement: dict, s: dict) -> bool:
     return bool(s.get("self_weight")) or movement.get("exetype") in BODYWEIGHT_EXETYPES
 
 
-def set_load_kg(s: dict, movement: dict, bodyweight_kg: float | None,
-                *, per_side: bool = False) -> float | None:
-    """一组的等效负荷（kg）。返回 None 表示「无法计算」，绝不返回 0 兜底。
+def _recorded_sides(s: dict) -> list[float]:
+    """这一行记录里出现的重量数值。一个或两个。
 
-    per_side=True 时，单侧动作只返回单侧重量。算容量要用双侧合计，
-    算估算 1RM 必须用单侧 —— 两者混用会让单侧动作的 1RM 虚高一倍。
+    两个的时候它们**是什么**取决于动作类型 —— 见 `loading.py`：
+    `both` 类是两只手（同一次提举的两半），`per_side` 类是两组（左右各一组）。
+    这个函数不做解释，只负责把数取出来。
     """
-    w = s.get("weight_kg")
+    w, left = s.get("weight_kg"), s.get("left_weight_kg")
+    out = [] if w is None else [float(w)]
+    if left is not None:
+        out.append(float(left))
+    return out
 
+
+def _machine_load(s: dict, movement: dict, bodyweight_kg: float | None
+                  ) -> tuple[bool, float | None]:
+    """自重 / 辅助器械的等效负荷。这两类不存在「单侧口径」，算出来就是整体。
+
+    返回 `(适用, 值)`。**这两件事必须分开** —— 用单个 `None` 同时表示
+    「不是这一类」和「是这一类但缺体重算不出」，会让辅助器械在缺体重时
+    漏到下面的原始重量分支，把**助力配重**当成负荷返回：助力调得越大
+    （越轻松）显示的负荷反而越高，方向完全反了。
+    这个坑在改口径时真的踩了一次，`tests/test_metrics.py::TestAssisted` 抓住了。
+    """
     if is_assisted(movement):
         # 辅助器械：记录的是助力配重，方向和负重相反。
-        # 真实负荷 = 体重折算 − 助力。把助力当成负荷加进去会让方向完全反过来：
-        # 助力调得越大（越轻松）反而显示容量越高。
+        # 真实负荷 = 体重折算 − 助力。
         if bodyweight_kg is None:
-            return None
+            return True, None
         base = bodyweight_kg * bodyweight_factor(movement.get("name", ""))
-        return max(base - (w or 0.0), 0.0)
-
+        return True, max(base - (s.get("weight_kg") or 0.0), 0.0)
     if is_bodyweight(movement, s):
         if bodyweight_kg is None:
-            return None
+            return True, None
         base = bodyweight_kg * bodyweight_factor(movement.get("name", ""))
-        return base + (w or 0.0)
+        return True, base + (s.get("weight_kg") or 0.0)
+    return False, None
 
-    if w is None:
+
+def per_side_load_kg(s: dict, movement: dict, bodyweight_kg: float | None
+                     ) -> float | None:
+    """**单侧 / 单器械**负荷 —— 顶组和估算 1RM 的统一基准。
+
+    也就是「你往一个哑铃上加了多少」「器械配重片停在哪一格」，
+    和你在器械上看到的数字一致。
+
+    为什么顶组和 1RM 必须同一个基准：此前顶组用双侧合计而 1RM 用单侧，
+    同一个动作「一会儿乘 1 一会儿乘 2」，于是打出「顶组 20kg（双侧合计）/
+    估算 1RM 13kg（单侧）」—— 1RM 低于顶组，数学上不可能。
+    使用者 2026-08-11 拍板统一到单侧口径，接受历史数字变化。
+
+    两侧都记了就取**较重**那一侧：顶组的定义是「那天真的举起来过的最重的东西」。
+    此前这里只读 `weight_kg` 而丢掉 `left_weight_kg`，左边更重时 1RM 会低估
+    （保加利亚蹲右 10 / 左 15，算的是 10）。
+    """
+    applies, machine = _machine_load(s, movement, bodyweight_kg)
+    if applies:
+        return machine
+    sides = _recorded_sides(s)
+    return max(sides) if sides else None
+
+
+def set_load_kg(s: dict, movement: dict, bodyweight_kg: float | None,
+                *, per_side: bool = False) -> float | None:
+    """一次提举的等效负荷（kg）。返回 None 表示「无法计算」，绝不返回 0 兜底。
+
+    `per_side=True` 直接转 `per_side_load_kg()`（顶组与 1RM 用它）。
+
+    `per_side=False` 给的是**单次提举实际移动的总重**：
+    双手各一个哑铃同时推 = 两只相加；单个哑铃 = 就那一个。
+    口径来自 `knowledge/movements/implement-loading.json`，不再依赖训记那个
+    `unilateral` 布尔值 —— 它其实是**记录格式标记**（只表示「这条记录带了左右
+    两个重量」），把双手同推和左右分做混成了一类。
+    """
+    if per_side:
+        return per_side_load_kg(s, movement, bodyweight_kg)
+
+    applies, machine = _machine_load(s, movement, bodyweight_kg)
+    if applies:
+        return machine
+    sides = _recorded_sides(s)
+    if not sides:
         return None
-    if movement.get("unilateral") and not per_side:
-        # 单侧动作：weight 是单侧重量，左右各做一遍。
-        # 用真实的左右重量相加而不是简单 ×2 —— 顺带就得到了不平衡度。
-        left = s.get("left_weight_kg")
-        return w + (left if left is not None else w)
-    return w
+
+    spec = loading.classify(movement.get("name", ""))
+    if spec.per_side_sets:
+        # 左右分别各做一组：两个数是两组各自的重量，**不是同一次提举的两半**。
+        # 单次提举负荷取较重那一组，并按器械数折算（每侧都拎着两个哑铃）。
+        return max(sides) * spec.factor
+    # 两侧同时做：两个数就是两只手，直接相加（比 ×2 准，两只不一样重时也对）。
+    return sum(sides) if len(sides) > 1 else sides[0] * spec.factor
 
 
 def set_volume_kg(s: dict, movement: dict, bodyweight_kg: float | None) -> float | None:
+    """这一行记录贡献的总功（kg·次）。
+
+    `per_side` 类动作的一行记录**是两组**，两组各自的功要分别算再相加 ——
+    而且 `reps` 是**每侧**的次数（使用者 2026-08-11 确认）。
+
+    此前这里把右+左相加当成单次负荷再乘次数。对「双手同推」和「单臂轮流」
+    代数上恰好正确，但对「两手各拎一个、左右腿分别做」**少算一半** ——
+    漏掉了每侧都还拎着两个哑铃这一层。保加利亚蹲和箭步蹲的历史吨位
+    一直是实际的一半。
+    """
     if not set_done(s, movement):
         return None
     reps = s.get("reps")
     if not reps:
         return None
-    load = set_load_kg(s, movement, bodyweight_kg)
-    if load is None:
+
+    applies, machine = _machine_load(s, movement, bodyweight_kg)
+    if applies:
+        return None if machine is None else machine * reps
+    sides = _recorded_sides(s)
+    if not sides:
         return None
+
+    spec = loading.classify(movement.get("name", ""))
+    if spec.per_side_sets:
+        return sum(x * spec.factor * reps for x in sides)
+    load = sum(sides) if len(sides) > 1 else sides[0] * spec.factor
     return load * reps
 
 
@@ -241,15 +320,17 @@ def movement_stats(m: dict, bodyweight_kg: float | None) -> MovementStats:
 
     times = [s["time_s"] for s in done if s.get("time_s")]
 
-    loads = [set_load_kg(s, m, bodyweight_kg) for s in done]
+    # 顶组和估算 1RM **必须同一个基准**，否则会打出「顶组 24.0kg /
+    # 估算 1RM 13kg（单侧）」这种 1RM 低于顶组的组合。统一到单侧/单器械口径
+    # （使用者 2026-08-11 拍板），也就是你在器械上看到的那个数。
+    loads = [per_side_load_kg(s, m, bodyweight_kg) for s in done]
     known_loads = [x for x in loads if x is not None]
     top_load = max(known_loads) if known_loads else None
 
     best_e1rm, method = None, "n/a"
     for s in done:
-        # 走同一套负荷逻辑，避免自重/辅助/单侧的换算在两处各写一遍而走样。
-        # per_side=True：单侧动作用单侧重量算 1RM，不能用双侧合计。
-        val, meth = e1rm(set_load_kg(s, m, bodyweight_kg, per_side=True), s.get("reps"))
+        # 走同一个函数，避免自重/辅助/单侧的换算在两处各写一遍而走样。
+        val, meth = e1rm(per_side_load_kg(s, m, bodyweight_kg), s.get("reps"))
         if val is not None and (best_e1rm is None or val > best_e1rm):
             best_e1rm, method = val, meth
 
