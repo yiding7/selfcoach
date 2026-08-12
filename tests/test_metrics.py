@@ -58,6 +58,109 @@ class TestUnilateralVolume:
         assert ms.imbalance_pct == pytest.approx(20.0)
 
 
+class TestLoadingBasis:
+    """顶组 / 1RM / 吨位 三个指标在四种器械口径下的口径一致性。
+
+    背景：训记的 `unilateral` 是**记录格式标记**（只表示这条记录带了左右两个
+    重量），不是解剖学标记。它把「两手各一个哑铃同时推」和「左右腿分别各做
+    一组」混成一类。口径表在 `knowledge/movements/implement-loading.json`。
+
+    使用者 2026-08-11 拍板：顶组和估算 1RM 统一用**单侧/单器械**口径。
+    """
+
+    @staticmethod
+    def _m(name, sets, **kw):
+        base = {"name": name, "raw_type": None, "exetype": None,
+                "unilateral": any(s.get("left_weight_kg") is not None for s in sets),
+                "sets": sets}
+        base.update(kw)
+        return base
+
+    def test_pair_both_sums_the_two_hands(self):
+        """哑铃卧推：两手各 12kg 同时推，一次提举 24kg，做 10 次。"""
+        ms = movement_stats(self._m("哑铃卧推", [
+            mk_set(weight_kg=12.0, left_weight_kg=12.0, reps=10)]), 80.0)
+        assert ms.volume_kg == pytest.approx(240.0)
+        assert ms.top_load_kg == pytest.approx(12.0), "顶组是单侧口径 —— 器械上看到的数"
+        assert ms.best_e1rm == pytest.approx(12.0 * (1 + 10 / 30))
+
+    def test_single_both_does_not_double(self):
+        """酒杯深蹲：一个哑铃双手持。15kg 就是 15kg，不能报成 30。"""
+        ms = movement_stats(self._m("哑铃酒杯深蹲", [
+            mk_set(weight_kg=15.0, reps=9)]), 80.0)
+        assert ms.volume_kg == pytest.approx(135.0)
+        assert ms.top_load_kg == pytest.approx(15.0)
+
+    def test_single_per_side_does_not_double_the_top_load(self):
+        """单臂哑铃划船：一个 15kg 哑铃，左右各做 10 次。
+
+        顶组必须是 15 —— 报成 30 是这张表要修的原始错。
+        吨位仍是 300（左右各 150），这一点改动前后一致。
+        """
+        ms = movement_stats(self._m("单臂哑铃划船", [
+            mk_set(weight_kg=15.0, left_weight_kg=15.0, reps=10)]), 80.0)
+        assert ms.top_load_kg == pytest.approx(15.0), "顶组绝不能翻倍"
+        assert ms.volume_kg == pytest.approx(300.0)
+
+    def test_pair_per_side_counts_both_dumbbells_on_each_side(self):
+        """保加利亚蹲：两手各一个哑铃，左右腿分别各做一组，reps 是每侧次数。
+
+        右腿组每手 10kg → 一次提举 20kg，6 次 = 120
+        左腿组每手 12.5kg → 一次提举 25kg，6 次 = 150
+        合计 270 kg。
+
+        改动前这里是 (10+12.5)×6 = 135 —— **少算一半**，漏掉了每侧都还
+        拎着两个哑铃这一层。保加利亚蹲和箭步蹲的历史吨位一直是实际的一半。
+        """
+        ms = movement_stats(self._m("哑铃保加利亚蹲", [
+            mk_set(weight_kg=10.0, left_weight_kg=12.5, reps=6)]), 80.0)
+        assert ms.volume_kg == pytest.approx(270.0)
+        assert ms.top_load_kg == pytest.approx(12.5), "取较重那一侧"
+
+    def test_the_heavier_side_wins_for_e1rm(self):
+        """此前只读 `weight_kg` 而丢掉 `left_weight_kg`，左边更重时 1RM 会低估。"""
+        ms = movement_stats(self._m("哑铃保加利亚蹲", [
+            mk_set(weight_kg=10.0, left_weight_kg=12.5, reps=6)]), 80.0)
+        assert ms.best_e1rm == pytest.approx(12.5 * (1 + 6 / 30))
+
+    def test_a_pair_record_without_a_left_value_still_counts_two_dumbbells(self):
+        """早期记录没有左右拆分，那个单值仍然是**每只手**的重量。
+
+        证据：哑铃卧推 03-10 单值 5.0 → 03-16 记成 7.5/7.5。
+        按每手读是 +50%（6 天内合理）；按「两手合计」读就是 2.5→7.5 三倍，不可能。
+        这条读法让 3 月那个 ×2 断层消失 —— 顶组变成 5.0 → 7.5 的连续曲线。
+        """
+        ms = movement_stats(self._m("哑铃卧推", [
+            mk_set(weight_kg=5.0, reps=12)]), 80.0)
+        assert ms.volume_kg == pytest.approx(120.0), "两个哑铃 → 5×2×12"
+        assert ms.top_load_kg == pytest.approx(5.0), "顶组仍是单侧口径"
+
+    @pytest.mark.parametrize("name,sets", [
+        ("哑铃卧推", [mk_set(weight_kg=12.0, left_weight_kg=12.0, reps=10)]),
+        ("哑铃保加利亚蹲", [mk_set(weight_kg=10.0, left_weight_kg=12.5, reps=6)]),
+        ("单臂哑铃划船", [mk_set(weight_kg=15.0, left_weight_kg=15.0, reps=10)]),
+        ("哑铃酒杯深蹲", [mk_set(weight_kg=15.0, reps=9)]),
+        ("杠铃卧推", [mk_set(weight_kg=40.0, reps=6)]),
+    ])
+    def test_e1rm_is_never_below_the_top_set(self, name, sets):
+        """**这是这次改动的核心不变式。**
+
+        估算 1RM 低于顶组在数学上不可能（1RM 是从那一组外推到 1 次）。
+        改动前哑铃卧推打出「顶组 24.0 / 估算 1RM 16.8」，就是因为顶组用双侧
+        合计而 1RM 用单侧 —— 同一个动作一会儿乘 1 一会儿乘 2。
+        """
+        ms = movement_stats(self._m(name, sets), 80.0)
+        assert ms.best_e1rm >= ms.top_load_kg - 1e-9, \
+            f"{name}: 1RM {ms.best_e1rm} < 顶组 {ms.top_load_kg}"
+
+    def test_an_unknown_movement_is_not_silently_doubled(self):
+        """认不出来的动作走默认（单器械），绝不放大数字。"""
+        ms = movement_stats(self._m("某某新奇器械推举", [
+            mk_set(weight_kg=30.0, reps=10)]), 80.0)
+        assert ms.volume_kg == pytest.approx(300.0)
+        assert ms.top_load_kg == pytest.approx(30.0)
+
+
 class TestAssisted:
     """exetype='help' 是辅助器械：记录的重量是助力配重，越大越省力。
 
@@ -87,6 +190,18 @@ class TestAssisted:
 
     def test_no_bodyweight_means_no_number(self):
         assert set_load_kg(self.MOVEMENT["sets"][0], self.MOVEMENT, None) is None
+
+    def test_no_bodyweight_does_not_leak_the_assist_weight_as_volume(self):
+        """回归：缺体重时**绝不能**退回原始重量 —— 那是助力配重，方向相反。
+
+        改口径时真的踩过：内部那个 helper 用单个 None 同时表示「不是这一类」
+        和「是这一类但算不出」，于是辅助器械漏到了「按原始重量算」的分支，
+        把 53kg 助力当成 53kg 负荷。助力调得越大反而显示越重，方向完全反了。
+        """
+        assert set_volume_kg(self.MOVEMENT["sets"][0], self.MOVEMENT, None) is None
+        ms = movement_stats(self.MOVEMENT, bodyweight_kg=None)
+        assert ms.volume_kg is None
+        assert ms.top_load_kg is None
 
 
 class TestBodyweight:
