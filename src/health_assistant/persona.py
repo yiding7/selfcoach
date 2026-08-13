@@ -42,6 +42,13 @@ ADDRESS_FIELD_COMMENT = (
     "profile/ 的散文档案里也只引用不复制。空表示不要称呼，教练直接说事。"
     "改这个字段用 hc setup。")
 
+COACH_NAME_FIELD_COMMENT = (
+    "你怎么称呼教练。可以有多个（本名一个、简称一个），第一个是教练自称时用的。"
+    "和 address 是同一件事的另一半：address 管教练怎么叫你，这里管你怎么叫教练。"
+    "**还有一个用处是让教练认出自己被叫到了** —— 一句话以这里的任何一个名字开头，"
+    "就是在叫它。空表示不起名字，教练就是「教练」。"
+    "改这个字段用 hc setup 或 hc persona --set-coach-name。")
+
 # slug → (显示名, 一句话说明)。顺序就是 hc setup 和 hc persona 的展示顺序。
 TONES: dict[str, tuple[str, str]] = {
     "warm":      ("亲切客观", "熟悉你、愿意把话说明白。会打招呼，表情符号少量且有所指"),
@@ -90,16 +97,13 @@ def tone_path(slug: str | None = None):
     return PERSONAS_DIR / f"{slug or current()}.md"
 
 
-def addresses() -> list[str]:
-    """怎么称呼用户。空列表 = 没设，或者用户明确选择不要称呼。
-
-    **空是一个合法答案，不是缺失。** 有人不喜欢被叫名字，教练直接说事就行 ——
-    所以这里不给任何默认值，也不去别处猜（猜出来的称呼比没有称呼更冒犯）。
+def _name_list(field: str) -> list[str]:
+    """`address` / `coach_name` 这类「名字列表」字段的统一读法。
 
     容错和 `current()` 一致：字段类型不对就当没设，不抛异常 ——
     一个称呼字段填坏了不该让整个教练用不了。
     """
-    raw = _profile().get("address")
+    raw = _profile().get(field)
     if isinstance(raw, str):          # 单个字符串也认，用户手改 json 时很容易这么写
         raw = [raw]
     if not isinstance(raw, list):
@@ -107,39 +111,73 @@ def addresses() -> list[str]:
     return [s.strip() for s in raw if isinstance(s, str) and s.strip()]
 
 
-def address_warning() -> str | None:
-    """address 填坏了的话，一句人话说清「没有生效」。没问题返回 None。
+def _name_list_warning(field: str, fallback: str, example: str) -> str | None:
+    """名字列表字段填坏了的话，一句人话说清「没有生效」。没问题返回 None。
 
     为什么单独开一个函数而不是只在 `warnings()` 里塞一行：调用方要能**区分**
-    「address 是空的（用户明确不要称呼）」和「address 填坏了被丢掉了」。
-    这两种情况 `addresses()` 都返回 `[]`，而 `hc doctor` 原来只看字段在不在，
+    「字段是空的（用户明确选择不要）」和「字段填坏了被丢掉了」。
+    这两种情况读函数都返回 `[]`，而 `hc doctor` 原来只看字段在不在，
     于是手改成 `{"formal": "王先生"}` 会被报成「✅ 称呼：不要称呼（已确认）」——
     用户明明填了两个称呼，工具却说系统已确认他不要称呼。
 
     这和忌口那一层的纪律是同一条：解析失败要红着脸报出来，不许打绿勾糊弄。
-    `addresses()` 本身继续容错返回 `[]`（一个称呼字段填坏了不该让整个教练
-    用不了），但**不能静默**。
+    读函数本身继续容错返回 `[]`，但**不能静默**。
     """
-    raw = _profile().get("address")
+    raw = _profile().get(field)
     if raw is None or isinstance(raw, str):
         return None
     if not isinstance(raw, list):
-        return (f"data/profile.json 的 address 是 {type(raw).__name__} 类型，"
-                f"这里只认字符串或字符串数组（比如 [\"老王\", \"王先生\"]）—— "
-                f"**这个字段没有生效**，教练当成没有称呼。用 hc setup 重填")
+        return (f"data/profile.json 的 {field} 是 {type(raw).__name__} 类型，"
+                f"这里只认字符串或字符串数组（比如 {example}）—— "
+                f"**这个字段没有生效**，教练当成{fallback}。用 hc setup 重填")
     bad = [x for x in raw if not isinstance(x, str)]
     if bad:
-        return (f"data/profile.json 的 address 里有 {len(bad)} 项不是文字，已忽略 —— "
+        return (f"data/profile.json 的 {field} 里有 {len(bad)} 项不是文字，已忽略 —— "
                 f"这几项**没有生效**。用 hc setup 重填")
     return None
+
+
+def addresses() -> list[str]:
+    """怎么称呼用户。空列表 = 没设，或者用户明确选择不要称呼。
+
+    **空是一个合法答案，不是缺失。** 有人不喜欢被叫名字，教练直接说事就行 ——
+    所以这里不给任何默认值，也不去别处猜（猜出来的称呼比没有称呼更冒犯）。
+    """
+    return _name_list("address")
+
+
+def address_warning() -> str | None:
+    return _name_list_warning("address", "没有称呼", '["老王", "王先生"]')
+
+
+def coach_names() -> list[str]:
+    """用户怎么叫教练。空列表 = 没起过名字，或者明确选择不起。
+
+    这个字段有两个用处，第二个容易被忽略：
+
+    1. 教练**自称**时用第一个（「阿尺觉得…」比「我觉得…」少见，但签名、
+       落款、日志署名要用）
+    2. **认出自己被叫到了** —— 用户一句话以这里的任何一个名字开头，
+       就是在叫教练。多个别名全都算叫它，所以这里返回的是**全部**别名，
+       调用方不要只取第一个去做匹配
+
+    和 `addresses()` 同一条纪律：空是答案不是缺失，**绝不自己编一个**。
+    没起名字的教练就叫「教练」，那完全够用。
+    """
+    return _name_list("coach_name")
+
+
+def coach_name_warning() -> str | None:
+    return _name_list_warning("coach_name", "没起名字（就叫「教练」）",
+                              '["阿尺", "Chi"]')
 
 
 def warnings() -> list[str]:
     """配置层面的问题。给 doctor 用 —— 它要能说清「为什么没生效」。"""
     out = []
-    addr = address_warning()
-    if addr:
-        out.append(addr)
+    for w in (address_warning(), coach_name_warning()):
+        if w:
+            out.append(w)
     raw = _profile().get("persona")
     if raw is not None and normalize(raw) is None:
         out.append(f"data/profile.json 的 persona 填的是「{raw}」，不认识，"
@@ -166,6 +204,35 @@ def set_tone(slug: str) -> str:
         json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8")
     return norm
+
+
+def set_coach_names(names: list[str] | str | None) -> list[str]:
+    """写回 data/profile.json 的 coach_name。返回落盘后的列表。
+
+    传空列表是**合法的**，意思是「不给教练起名字」—— 和 `hc setup` 里
+    「直接回车 = 不要称呼」是同一个语义。所以这里不把空当成错误，
+    但会把字段真的写成 `[]`，让 `coach_name_set` 能区分「明确不要」和「没问过」。
+    """
+    if names is None:
+        names = []
+    if isinstance(names, str):
+        names = [names]
+    clean, seen = [], set()
+    for n in names:
+        if not isinstance(n, str):
+            raise ValueError(f"名字必须是文字，收到 {type(n).__name__}")
+        s = n.strip()
+        if s and s not in seen:      # 去重但保持顺序 —— 第一个是教练自称用的那个
+            seen.add(s)
+            clean.append(s)
+    data = _profile()
+    data["coach_name"] = clean
+    data.setdefault("_coach_name_comment", COACH_NAME_FIELD_COMMENT)
+    PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PROFILE_PATH.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8")
+    return clean
 
 
 def load(slug: str | None = None) -> str:
@@ -209,6 +276,9 @@ def as_dict() -> dict:
         "addresses": addresses(),
         "address_set": "address" in _profile(),
         "address_ok": address_warning() is None,
+        "coach_names": coach_names(),
+        "coach_name_set": "coach_name" in _profile(),
+        "coach_name_ok": coach_name_warning() is None,
         "warnings": warnings(),
     }
 
@@ -245,7 +315,19 @@ def render_list() -> str:
     lines.append(f"  称呼：{shown}"
                  f"　←　data/profile.json 的 address"
                  + ("　第一个是默认" if len(addrs) > 1 else ""))
+    # 教练的名字紧跟在称呼后面 —— 它俩是同一件事的两半，分开显示用户会漏掉一半。
+    names = coach_names()
+    if not names and coach_name_warning():
+        shown_name = "**没有生效**（coach_name 格式不对，见下面的告警）"
+    else:
+        shown_name = ("、".join(names) if names
+                      else "没起名字（就叫「教练」）")
+    lines.append(f"  教练叫：{shown_name}"
+                 f"　←　data/profile.json 的 coach_name"
+                 + ("　第一个是自称用的" if len(names) > 1 else ""))
     lines.append("  切换：hc persona --set 严厉严肃    或    hc setup")
+    lines.append("  改名：hc persona --set-coach-name 阿尺,Chi"
+                 "    （填「清空」= 不起名字）")
     for w in warnings():
         lines.append(f"  ⚠️  {w}")
     return "\n".join(lines)

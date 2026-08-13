@@ -24,7 +24,7 @@
 | `data/apple-health/metrics.jsonl` | 步数、睡眠、静息心率、HRV、饮酒、饮水、运动分钟 | `hc import-health` |
 | `data/meals/YYYY-MM.jsonl` | 饮食记录 | `hc sync food` / 助手 |
 | `data/dice.jsonl` | **食物骰子摇过什么**（是「摇过」不是「吃过」，见 §7）| `hc dice` |
-| `data/profile.json` | 性别、**出生年月**、身高、目标、训练计划与周起始日 —— 引擎算心率区间要用 | `hc setup` |
+| `data/profile.json` | 性别、**出生年月**、身高、目标、训练计划与周起始日 —— 引擎算心率区间要用；另有语气 `persona`、称呼 `address`、**教练的名字 `coach_name`** | `hc setup` |
 | `data/autosync.log` | 后台同步日志 | `hc autosync` |
 
 > `data/` 整个目录在 `.gitignore` 里。想跨设备同步，在 `data/` 里单独 `git init`

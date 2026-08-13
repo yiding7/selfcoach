@@ -174,6 +174,114 @@ class TestAddresses:
         assert "不用称呼" in persona.render_list()
 
 
+class TestCoachName:
+    """教练自己的名字。称呼的另一半 —— 那边是它怎么叫你，这边是你怎么叫它。
+
+    契约和 `address` **逐条对齐**（空是答案、单字符串也认、坏值报出来不静默），
+    因为两个字段在 `hc doctor` 和 `scripts/coach` 里走的是同一套判据。
+    对齐是有意的：两边一旦漂开，其中一个的失败模式就没人测了。
+
+    另外多一条 `address` 没有的义务：这个字段还要让教练**认出自己被叫到了**，
+    所以别名必须能填多个，而且读函数要返回**全部**别名而不只是第一个。
+    """
+
+    def test_empty_when_never_asked(self, sandbox):
+        assert persona.coach_names() == []
+
+    def test_reads_the_list_in_order(self, sandbox):
+        _write_profile(sandbox["profile"], {"coach_name": ["阿尺", "Chi"]})
+        assert persona.coach_names() == ["阿尺", "Chi"], "第一个是自称用的"
+
+    def test_explicit_empty_stays_empty(self, sandbox):
+        """明确填了空 = 不起名字。绝不能在这里补一个默认值。"""
+        _write_profile(sandbox["profile"], {"coach_name": []})
+        assert persona.coach_names() == []
+
+    def test_a_bare_string_is_accepted(self, sandbox):
+        _write_profile(sandbox["profile"], {"coach_name": "阿尺"})
+        assert persona.coach_names() == ["阿尺"]
+
+    @pytest.mark.parametrize("bad", [123, {"first": "阿尺"}, None])
+    def test_garbage_degrades_to_empty_instead_of_raising(self, sandbox, bad):
+        _write_profile(sandbox["profile"], {"coach_name": bad})
+        assert persona.coach_names() == []
+
+    @pytest.mark.parametrize("bad", [123, {"full": "阿尺", "short": "尺"}])
+    def test_garbage_is_reported_instead_of_silently_dropped(self, sandbox, bad):
+        _write_profile(sandbox["profile"], {"coach_name": bad})
+        warn = persona.coach_name_warning()
+        assert warn and "没有生效" in warn
+        assert warn in persona.warnings()
+        assert "没有生效" in persona.render_list()
+
+    @pytest.mark.parametrize("fine", [None, [], ["阿尺"], "阿尺", ["阿尺", "  "]])
+    def test_the_normal_shapes_do_not_warn(self, sandbox, fine):
+        _write_profile(sandbox["profile"],
+                       {"coach_name": fine} if fine is not None else {})
+        assert persona.coach_name_warning() is None
+        assert persona.warnings() == []
+
+    def test_blanks_and_padding_are_dropped(self, sandbox):
+        _write_profile(sandbox["profile"], {"coach_name": ["  阿尺  ", "", "  ", 7]})
+        assert persona.coach_names() == ["阿尺"]
+
+    def test_render_list_says_when_there_is_no_name(self, sandbox):
+        _write_profile(sandbox["profile"], {"coach_name": []})
+        assert "没起名字" in persona.render_list()
+
+    def test_render_list_shows_every_alias(self, sandbox):
+        """别名是识别用的，`hc persona` 只显示第一个的话用户没法核对。"""
+        _write_profile(sandbox["profile"], {"coach_name": ["阿尺", "Chi"]})
+        out = persona.render_list()
+        assert "阿尺" in out and "Chi" in out
+
+    def test_a_broken_name_does_not_also_break_the_address(self, sandbox):
+        """两个字段共用一套读法，别让其中一个的坏值污染另一个。"""
+        _write_profile(sandbox["profile"],
+                       {"address": ["Tim"], "coach_name": {"x": 1}})
+        assert persona.addresses() == ["Tim"]
+        assert persona.address_warning() is None
+        assert persona.coach_name_warning() is not None
+
+
+class TestSetCoachNames:
+    def test_writes_the_list_and_keeps_other_fields(self, sandbox):
+        _write_profile(sandbox["profile"], {"persona": "strict", "height_cm": 179})
+        assert persona.set_coach_names(["阿尺", "Chi"]) == ["阿尺", "Chi"]
+        data = json.loads(sandbox["profile"].read_text(encoding="utf-8"))
+        assert data["coach_name"] == ["阿尺", "Chi"]
+        assert data["persona"] == "strict" and data["height_cm"] == 179
+
+    def test_leaves_a_comment_explaining_the_field(self, sandbox):
+        persona.set_coach_names(["阿尺"])
+        data = json.loads(sandbox["profile"].read_text(encoding="utf-8"))
+        assert "_coach_name_comment" in data
+
+    def test_empty_is_saved_as_a_decision_not_skipped(self, sandbox):
+        """「不起名字」必须落成 `[]` —— 否则和「还没问过」分不开，教练会一直催。"""
+        assert persona.set_coach_names([]) == []
+        assert persona.as_dict()["coach_name_set"] is True
+        assert persona.as_dict()["coach_names"] == []
+
+    def test_a_bare_string_and_none_are_accepted(self, sandbox):
+        assert persona.set_coach_names("阿尺") == ["阿尺"]
+        assert persona.set_coach_names(None) == []
+
+    def test_duplicates_collapse_but_order_survives(self, sandbox):
+        assert persona.set_coach_names(["阿尺", "Chi", "阿尺"]) == ["阿尺", "Chi"]
+
+    def test_non_text_is_rejected_without_writing(self, sandbox):
+        _write_profile(sandbox["profile"], {"coach_name": ["阿尺"]})
+        with pytest.raises(ValueError):
+            persona.set_coach_names(["阿尺", 7])
+        assert persona.coach_names() == ["阿尺"], "报错的那次不该写坏原值"
+
+    def test_round_trip(self, sandbox):
+        persona.set_coach_names(["阿尺"])
+        assert persona.coach_names() == ["阿尺"]
+        assert persona.coach_name_warning() is None
+
+
 class TestMachineReadableSnapshot:
     """`as_dict()` 是给 `scripts/coach` 这类调用方用的**接口**。
 
@@ -197,6 +305,19 @@ class TestMachineReadableSnapshot:
         assert persona.as_dict()["address_set"] is False
         _write_profile(sandbox["profile"], {"address": []})
         assert persona.as_dict()["address_set"] is True
+
+    def test_carries_the_coach_name_fields(self, sandbox):
+        """`scripts/coach` 靠这三个键分「有名字 / 明确不起 / 没问过」三种状态。"""
+        _write_profile(sandbox["profile"], {"coach_name": ["阿尺", "Chi"]})
+        d = persona.as_dict()
+        assert d["coach_names"] == ["阿尺", "Chi"]
+        assert d["coach_name_set"] is True and d["coach_name_ok"] is True
+        _write_profile(sandbox["profile"], {})
+        assert persona.as_dict()["coach_name_set"] is False
+        _write_profile(sandbox["profile"], {"coach_name": []})
+        assert persona.as_dict()["coach_name_set"] is True
+        _write_profile(sandbox["profile"], {"coach_name": {"x": 1}})
+        assert persona.as_dict()["coach_name_ok"] is False
 
     def test_a_broken_address_shows_up_as_not_ok(self, sandbox):
         _write_profile(sandbox["profile"], {"address": {"formal": "王先生"}})

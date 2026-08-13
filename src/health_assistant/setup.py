@@ -53,6 +53,9 @@ DATA_MAP = [
      "只换措辞，不换规则；核心人格在 knowledge/coach/persona.md，选不了"),
     ("称呼（怎么叫你，可多个，可留空）", "data/profile.json → address", "hc setup",
      "唯一真相源。knowledge/ 会进版本库，名字绝不能写那边；留空就是不要称呼"),
+    ("教练的名字（你怎么叫它，可多个，可留空）", "data/profile.json → coach_name",
+     "hc setup / hc persona --set-coach-name",
+     "第一个是它自称用的；教练也靠它认出自己被叫到了。留空就还叫「教练」"),
     ("训练计划（频率/单次时长/侧重）", "data/profile.json → training", "hc setup",
      "hc next 拿单次时长提示超没超；建议值按目标推，以你填的为准"),
     ("周起始日（周一/周日）", "data/profile.json → training.week_start", "hc setup",
@@ -156,6 +159,25 @@ def _ask_address(current: list[str]) -> list[str]:
         print("   直接回车 = 不要称呼，教练开门见山说事 —— 这是个正经答案，不是跳过。")
     print("   多个的用法：正式一点的场合用一个，平时用另一个。")
     return _ask_list("怎么称呼你？", current)
+
+
+def _ask_coach_name(current: list[str]) -> list[str]:
+    """⑨ 教练的名字。⑧ 的另一半 —— 那边是它怎么叫你，这边是你怎么叫它。
+
+    留空同样是**正经答案**，理由和 ⑧ 一样：没起名字的教练就叫「教练」，
+    完全够用。所以这里也不给默认值、不去替用户想一个。
+
+    多别名不是装饰。这个字段的第二个用处是让教练**认出自己被叫到了** ——
+    「阿尺，看下我的数据」和「Chi，看下我的数据」都得算，所以别名要能填多个。
+    """
+    print("\n⑨ 教练的名字（你怎么叫它。第一个是它自称时用的）")
+    if current:
+        print("   直接回车 = 保持不变。")
+        print("   不想给它起名字了：填单个 - 或「清空」，它就还叫「教练」。")
+    else:
+        print("   直接回车 = 不起名字，它就叫「教练」—— 这也是个正经答案。")
+    print("   填多个的用处：以其中任何一个开头说话，它都知道是在叫它。")
+    return _ask_list("你想叫它什么？", current)
 
 
 def _ask_multi(prompt: str, options: tuple[str, ...], current: list[str]) -> list[str]:
@@ -422,7 +444,7 @@ def _ask_training(p: dict, phase: str) -> dict:
     rec, why = _plan.suggest(goal_metric=goal_metric, phase=phase,
                              current_days=actual_days_per_week())
 
-    print("\n⑨ 训练计划")
+    print("\n⑩ 训练计划")
     print("   下面这份是按你当前目标推的**建议值**，不是处方 —— 直接回车就采用它，")
     print("   想按自己的安排来就改，以你填的为准。")
     for line in why:
@@ -542,6 +564,7 @@ def run(*, today: dt.date | None = None, dry_run: bool = False) -> int:
     tone = _persona.normalize(tone_label) or _persona.DEFAULT_TONE
 
     address = _ask_address(_persona.addresses())
+    coach_name = _ask_coach_name(_persona.coach_names())
 
     training = _ask_training(p, phase)
 
@@ -552,9 +575,11 @@ def run(*, today: dt.date | None = None, dry_run: bool = False) -> int:
     p["diet"] = diet
     p["persona"] = tone
     p["address"] = address
+    p["coach_name"] = coach_name
     p["training"] = training
     p.setdefault("_persona_comment", _persona.PROFILE_FIELD_COMMENT)
     p.setdefault("_address_comment", _persona.ADDRESS_FIELD_COMMENT)
+    p.setdefault("_coach_name_comment", _persona.COACH_NAME_FIELD_COMMENT)
     if sex:
         p["sex"] = sex
     if birth_ym:
@@ -581,6 +606,7 @@ def run(*, today: dt.date | None = None, dry_run: bool = False) -> int:
             if k in p:
                 print(f"    {k} = {p[k]}")
         print(f"    address = {address or '[]（不要称呼）'}")
+        print(f"    coach_name = {coach_name or '[]（不起名字，就叫「教练」）'}")
         print(f"    diet.phase = {diet['phase']}")
         print(f"    diet.medical_blocks = {diet['medical_blocks']}")
         print(f"    diet.likes = {diet['likes']}")
@@ -673,8 +699,21 @@ def render_checklist() -> list[str]:
                      + ("、".join(addrs) if addrs
                         else ("不要称呼（已确认）" if asked_address else "没问过"))
                      + "　← address")
+    # 教练的名字：判据和称呼完全一样（空是答案，看「问过没有」而不是「有没有值」），
+    # 所以两处的失败模式也一样 —— 填坏了必须红着脸报，不许打绿勾说「没起名字」。
+    asked_coach_name = "coach_name" in p
+    cnames = _persona.coach_names()
+    cname_warn = _persona.coach_name_warning()
+    if cname_warn:
+        lines.append(f"  ❌ 教练的名字：**没有生效** —— {cname_warn}")
+    else:
+        lines.append(f"  {mark(asked_coach_name)} 教练的名字："
+                     + ("、".join(cnames) if cnames
+                        else ("不起名字，就叫「教练」（已确认）" if asked_coach_name
+                              else "没问过"))
+                     + "　← coach_name")
     for w in _persona.warnings():
-        if w == addr_warn:
+        if w in (addr_warn, cname_warn):
             continue          # 上面已经红着脸报过了，别再打一遍
         lines.append(f"  ⚠️  {w}")
 

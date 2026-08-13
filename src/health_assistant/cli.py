@@ -855,6 +855,25 @@ def cmd_persona(args) -> int:
         print(f"✅ 教练语气 → {persona.label(slug)}（knowledge/coach/personas/{slug}.md）")
         print("   下次对话生效。核心人格不变 —— 换的只是措辞，不是规则。")
         return 0
+    if getattr(args, "set_coach_name", None) is not None:
+        import re as _re
+        raw = args.set_coach_name.strip()
+        # 「清空」这几个词和 hc setup 里 _ask_list 的清空语义保持一致 ——
+        # 两个入口对同一个操作用两套词，用户迟早在其中一个上踩空。
+        names: list[str] = ([] if raw in ("-", "清空", "无", "none", "NONE")
+                            else [w for w in _re.split(r"[、，,；;/\\|_\s]+", raw) if w])
+        try:
+            saved = persona.set_coach_names(names)
+        except ValueError as e:
+            print(f"❌ {e}")
+            return 1
+        if saved:
+            print(f"✅ 教练的名字 → {'、'.join(saved)}"
+                  + ("　（第一个是自称用的）" if len(saved) > 1 else ""))
+            print("   下次对话生效。以这些名字开头的话，教练会知道是在叫它。")
+        else:
+            print("✅ 已记下：不给教练起名字，就叫「教练」。")
+        return 0
     if getattr(args, "json", False):
         # 给 scripts/coach 这类调用方用的稳定接口。人类可读的那份措辞随时会调，
         # 谁也不该去 sed 它 —— 抠不到时 sed 只会安静地给出空串。
@@ -1240,6 +1259,9 @@ def build_parser() -> argparse.ArgumentParser:
     pa.add_argument("--set", metavar="语气",
                     help="切换语气，中文名或 slug 都行："
                          + " / ".join(f"{n}({s})" for s, (n, _) in _pa.TONES.items()))
+    pa.add_argument("--set-coach-name", metavar="名字",
+                    help="你怎么叫教练。多个用逗号/空格隔开，第一个是它自称用的；"
+                         "填「清空」= 不起名字。教练也靠这个认出自己被叫到了")
     pa.add_argument("--show", action="store_true",
                     help="打印拼装后的完整人格（核心 + 当前语气）")
     pa.add_argument("--json", action="store_true",

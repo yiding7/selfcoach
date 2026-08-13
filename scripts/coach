@@ -43,15 +43,19 @@ MODE="${1:-}"
 persona_hint() {
   local py="${PYTHON:-python3}"
   local json="" fields="" tone="" address="" state="" warn=""
+  local coach_name="" coach_state=""
 
   if json="$("$HERE/scripts/hc" persona --json 2>/dev/null)"; then
     fields="$(printf '%s' "$json" | "$py" -c '
 import json, sys
 d = json.load(sys.stdin)
 addrs = d.get("addresses") or []
+names = d.get("coach_names") or []
 print(d.get("tone_label") or "")
 print("、".join(addrs))
 print("has" if addrs else ("empty" if d.get("address_set") else "unset"))
+print("、".join(names))
+print("has" if names else ("empty" if d.get("coach_name_set") else "unset"))
 print(" / ".join(d.get("warnings") or []))
 ' 2>/dev/null || true)"
   fi
@@ -60,6 +64,8 @@ print(" / ".join(d.get("warnings") or []))
       IFS= read -r tone
       IFS= read -r address
       IFS= read -r state
+      IFS= read -r coach_name
+      IFS= read -r coach_state
       IFS= read -r warn
     } <<<"$fields"
   fi
@@ -83,6 +89,17 @@ print(" / ".join(d.get("warnings") or []))
       printf '称呼：用户明确选了不要称呼（data/profile.json 的 address 是空的）。直接说事，不要自己想一个。\n' ;;
     *)
       printf '称呼：还没问过（data/profile.json 里没有 address 字段）。先直接说事，不要自己想一个；聊到合适的时候请他跑一次 hc setup。\n' ;;
+  esac
+  # 教练自己的名字。和称呼同一条纪律（空是答案、别自己编），但多一条**识别**义务：
+  # 用户以这个名字开头说话就是在叫你 —— 不注入这一条，agent 会把「阿尺，看下数据」
+  # 里的名字当成一个不认识的词，甚至当成动作名去查。
+  case "$coach_state" in
+    has)
+      printf '你的名字：%s（真相源 data/profile.json 的 coach_name，多个时第一个是你自称用的）。用户以其中任何一个开头说话，就是在叫你，正常应答不要反问「谁」。名字只改称呼，不改你的判断标准。\n' "$coach_name" ;;
+    empty)
+      printf '你的名字：用户明确选了不给你起名字（data/profile.json 的 coach_name 是空的）。你就是「教练」，不要自己取一个。\n' ;;
+    *)
+      printf '你的名字：还没问过（data/profile.json 里没有 coach_name 字段）。默认就是「教练」，不要自己取一个；他要是想起一个，用 hc persona --set-coach-name 或 hc setup。\n' ;;
   esac
 }
 
