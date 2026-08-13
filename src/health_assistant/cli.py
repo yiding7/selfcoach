@@ -116,8 +116,11 @@ def cmd_import_health(args) -> int:
         return 1
 
     print(f"导入 {path}")
+    # AH.parse 拿 since 和 ISO 日期串比大小。不翻译就会拿 "30d" 去比，
+    # 数字排在字母前，整份文件被静默滤空 —— 报的是「没解析出可用数据」。
+    since = _parse_since(args.since, dt.date.today()).isoformat() if args.since else None
     try:
-        data = AH.parse(path, since=args.since)
+        data = AH.parse(path, since=since)
     except (FileNotFoundError, OSError) as e:
         print(f"  读取失败：{e}")
         return 1
@@ -157,8 +160,12 @@ def cmd_cardio(args) -> int:
     for name, lo, hi, use in C.zone_table():
         print(f"  {name:<10} {lo:>3}–{hi:>3} bpm   {use}")
 
-    raw = store.load_sessions(start=args.since)
-    bouts = C.extract_bouts([], raw, start=args.since)
+    # 下游两处都是拿 ISO 日期串做字符串比较，必须先把 30d/12w 翻译掉。
+    # 原样传 "7d" 不会报错，只会把全部记录滤掉、然后报「本地没有有氧记录」。
+    today = dt.date.today()
+    start = _parse_since(args.since, today).isoformat() if args.since else None
+    raw = store.load_sessions(start=start)
+    bouts = C.extract_bouts([], raw, start=start)
     if not bouts:
         print("\n本地没有有氧记录。")
         print("训记会把苹果健康的运动同步过来（骑行、跑步、爬楼梯等），"
@@ -174,8 +181,7 @@ def cmd_cardio(args) -> int:
         if b.kcal:     line += f"  {b.kcal:.0f} kcal"
         print(line)
 
-    import datetime as _dt
-    week = C.summarize(bouts, _dt.date.today().isoformat(), window_days=args.window)
+    week = C.summarize(bouts, today.isoformat(), window_days=args.window)
     print(f"\n{'过去 ' + str(args.window) + ' 天汇总':─<54}")
     print(f"  {week.bouts} 次，共 {week.total_minutes:.0f} 分钟"
           + (f"，{week.total_kcal:.0f} kcal" if week.total_kcal else ""))
@@ -1171,12 +1177,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     ih = sub.add_parser("import-health", help="导入苹果健康导出文件（导出.zip）")
     ih.add_argument("path", help="导出.zip 或解压后的 导出.xml / 目录")
-    ih.add_argument("--since", help="只导入这个日期之后的，比如 2026-01-01")
+    ih.add_argument("--since", help="只导入这个日期之后的，支持 2026-07-01 或 30d/12w/6m/1y")
     ih.add_argument("--dry-run", action="store_true", help="只解析看结果，不写入")
     ih.set_defaults(func=cmd_import_health)
 
     cd = sub.add_parser("cardio", help="有氧与心率区间分析")
-    cd.add_argument("--since", default="2026-06-01", help="起始日期")
+    cd.add_argument("--since", default="2026-06-01",
+                    help="起始日期，支持 2026-07-01 或 30d/12w/6m/1y")
     cd.add_argument("--window", type=int, default=7, help="汇总窗口天数，默认 7")
     cd.set_defaults(func=cmd_cardio)
 
@@ -1196,7 +1203,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.set_defaults(func=cmd_rebuild)
 
     ls = sub.add_parser("sessions", help="列出本地训练记录")
-    ls.add_argument("--since", help="起始日期，支持 2026-07-01 或 30d")
+    ls.add_argument("--since", help="起始日期，支持 2026-07-01 或 30d/12w/6m/1y")
     ls.set_defaults(func=cmd_sessions)
 
     sm = sub.add_parser("summary", help="单次训练的详细指标")
@@ -1280,7 +1287,7 @@ def build_parser() -> argparse.ArgumentParser:
     jr.add_argument("--brief", action="store_true",
                     help="紧凑版，给 --append-system-prompt 注入用")
     jr.add_argument("--grep", metavar="关键词", help="全量检索（聊到旧话题时用）")
-    jr.add_argument("--since", help="某日期至今，支持 2026-07-01 或 30d/12w")
+    jr.add_argument("--since", help="某日期至今，支持 2026-07-01 或 30d/12w/6m/1y")
     jr.set_defaults(func=cmd_journal, journal_action=None)
 
     jsub = jr.add_subparsers(dest="journal_action")
@@ -1358,7 +1365,8 @@ def build_parser() -> argparse.ArgumentParser:
     da.set_defaults(func=cmd_dice, dice_action="add")
 
     dg = dsub.add_parser("log", help="最近摇过什么 + 本月破戒额度")
-    dg.add_argument("--since", help="默认最近 14 天")
+    dg.add_argument("--since",
+                    help="起始日期，支持 2026-07-01 或 30d/12w/6m/1y（默认最近 14 天）")
     dg.set_defaults(func=cmd_dice, dice_action="log")
 
     tg = sub.add_parser("targets", help="每日目标摄入量（热量 / 蛋白 / 脂肪 / 碳水）",
