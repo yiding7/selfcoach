@@ -457,3 +457,43 @@ class TestCommentRow:
         r = calibration.add_rule("面拉", "scale", ratio=0.5, gym="甲馆")
         assert [x.id for x in calibration.load_rules()] == [r.id]
         assert "_comment" in rules_file.read_text(encoding="utf-8")
+
+
+class TestBrokenLinesAreNotSilent:
+    """jsonl 是人真的会去手改的格式：一行一条、没有缩进、逗号引号全靠自己数。
+
+    而 `read_jsonl()` 遇到坏行是**跳过**的 —— 手滑打错一个引号，
+    那条规则就悄悄消失了：没有报错，只是折算不再发生。
+    跳过是对的（一行手滑不该让整个命令挂掉），但必须配一个「说出来」。
+    """
+
+    def test_a_broken_line_is_skipped_but_reported(self, rules_file):
+        rules_file.write_text(
+            store.dumps({"id": "A", "movement": "面拉", "action": "scale",
+                         "ratio": 0.5, "gym": "甲馆"}) + "\n"
+            + '{"id":"B","movement":"腿举" "action":"scale"}\n'      # 少了逗号
+            + store.dumps({"id": "C", "movement": "腿举", "action": "offset",
+                           "offset_kg": 50, "gym": "甲馆"}) + "\n",
+            encoding="utf-8")
+        # 坏行之后的规则照常读到 —— 一行坏不该带走整个文件
+        assert [r.id for r in calibration.load_rules()] == ["A", "C"]
+        bad = store.bad_jsonl_lines(rules_file)
+        assert [n for n, _ in bad] == [2], "坏行没被报出来，那就是静默丢数据"
+
+    def test_line_numbers_start_at_one(self, rules_file):
+        """报出来的行号要能直接拿去跳转，从 1 起。"""
+        rules_file.write_text("{坏\n", encoding="utf-8")
+        assert store.bad_jsonl_lines(rules_file)[0][0] == 1
+
+    def test_a_json_value_that_is_not_an_object_is_also_reported(self, rules_file):
+        rules_file.write_text('"我以为这是注释"\n', encoding="utf-8")
+        assert len(store.bad_jsonl_lines(rules_file)) == 1
+
+    def test_blank_lines_and_a_healthy_file_are_quiet(self, rules_file):
+        calibration.add_rule("面拉", "scale", ratio=0.5, gym="甲馆")
+        rules_file.write_text(rules_file.read_text(encoding="utf-8") + "\n\n",
+                              encoding="utf-8")
+        assert store.bad_jsonl_lines(rules_file) == []
+
+    def test_missing_file_is_not_an_error(self, tmp_path):
+        assert store.bad_jsonl_lines(tmp_path / "没有这个文件.jsonl") == []

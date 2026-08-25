@@ -141,6 +141,28 @@ def check(*, verbose: bool = False) -> int:
         lines.append(f"  {BAD} 数据目录不可写：{e}")
         fatal += 1
 
+    # jsonl 是人真的会去手改的格式：一行一条、没有缩进、逗号引号全靠自己数。
+    # 而 `read_jsonl()` 遇到坏行是**跳过**的 —— 手滑打错一个引号，那条规则
+    # 就悄悄消失了：没有报错，只是折算不再发生。这里把它变成一句人话。
+    broken = []
+    for path in sorted(DATA_DIR.rglob("*.jsonl")) + sorted(
+            (ROOT / "profile" / "coach-journal").glob("*.jsonl")):
+        for lineno, snippet in store.bad_jsonl_lines(path):
+            broken.append((path, lineno, snippet))
+    if broken:
+        for path, lineno, snippet in broken[:8]:
+            rel = path.relative_to(ROOT) if ROOT in path.parents else path
+            msg = f"{rel} 第 {lineno} 行不是合法 JSON，**这一行被静默跳过了**"
+            lines.append(f"  {BAD} {msg}")
+            lines.append(f"      {snippet}")
+            # 算 fatal 而不是 todo：这不是「等你拍板」，是数据正在被丢掉。
+            # 退出码非 0，脚本和 hook 都能拦住。
+            fatal += 1
+        if len(broken) > 8:
+            lines.append(f"      …… 还有 {len(broken) - 8} 行")
+    else:
+        lines.append(f"  {OK} 全部 jsonl 逐行可解析")
+
     # ── 凭证 ──
     lines.append(f"\n{'训记凭证':─<20}")
     present = 0

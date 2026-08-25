@@ -384,6 +384,10 @@ knowledge/coach/safety-boundaries.md        医疗边界，压倒一切
   被哪条改过。CLI 会拒绝，别绕过它
 - 不要在写 `--offset` 之前不看那个馆的历史记录 —— 老口径（片重已含 start）的
   记录会被静默双重计入，折算过的数只会比原数大，看不出错在哪
+- 不要手改 `.jsonl`（`load-calibration` / `gyms` / `coach-journal` / `training`）——
+  用对应的 `hc` 命令。手改的风险不在于"改错值"，而在于**改坏一行就静默消失**：
+  `read_jsonl()` 遇到解析不了的行是跳过的。真手改了就跑一次 `hc doctor`，
+  它会逐行验所有 jsonl 并报出行号
 - 不要为了「试一下」去跑 `hc setup` —— 它会真的改档案、还会往 `data/body/` 写体重。
   验证交互用 `hc setup --dry-run`
 - 不要自己算年龄。真相源是 `age.py` 的 `age_at()`，它同时返回口径说明

@@ -390,6 +390,29 @@ hc calib list                       # 看所有规则，@馆名 就是它的作�
 > **没改过的旧记录会被双重计入，而且是静默的** —— 折算过的数只会比原数大，
 > 看不出错在哪。写规则之前先扫一眼那个馆的历史。
 
+##### 怎么读、怎么改这个 jsonl
+
+**改用 `hc calib set`，别手改。** 不是洁癖：`read_jsonl()` 遇到解析不了的行是
+**跳过**的，所以手滑打错一个引号，那条规则就悄悄消失了 —— 没有报错，
+只是折算不再发生。CLI 那条路有校验、自动发号、只追加、字节稳定。
+
+要**看**：
+
+```bash
+hc calib list                            # 人读格式，含失效规则
+jq -r 'select(._comment|not)' data/load-calibration.jsonl        # 逐条展开
+jq -rs '.[]|select(.action)|[.id,.gym//"—",.movement,.action,
+        (.ratio//.offset_kg//""|tostring)]|@tsv' data/load-calibration.jsonl | column -t
+```
+
+真手改了（或怀疑改坏了），**跑一次 `hc doctor`** —— 它会逐行验 `data/` 和
+`profile/coach-journal/` 下所有 jsonl，报出**文件名 + 行号 + 出错的列**，
+并且退出码非 0。这是那个 `continue` 的另一半：跳过是对的，但必须说出来。
+
+> 文件头上那些 `{"_comment": "..."}` 行是注释（jsonl 没有注释语法，
+> 靠「action 不在白名单里就跳过」被忽略）。**一行一句、每行都短**是有意的：
+> 这个文件是人要在编辑器里读的，一行两千字符谁也看不下去。
+
 #### 训练场地 `data/gyms.jsonl`
 
 **换馆 = 换尺。** 到 2026-08-21 为止，所有的负荷口径事故追下去都是同一件事：

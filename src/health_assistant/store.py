@@ -59,6 +59,12 @@ def read_json(path: Path, default: Any = None) -> Any:
 
 
 def read_jsonl(path: Path) -> list[dict]:
+    """读一个 jsonl。**坏行跳过**，不抛异常 —— 一行手滑不该让整个命令挂掉。
+
+    但「跳过」必须配一个「说出来」，否则手改文件时打错一个引号，
+    那条规则就悄悄消失了：没有报错，只是折算不再发生。
+    说出来的那一半在 `bad_jsonl_lines()`，`hc doctor` 会扫全部 jsonl。
+    """
     if not path.exists():
         return []
     out = []
@@ -70,6 +76,33 @@ def read_jsonl(path: Path) -> list[dict]:
             except json.JSONDecodeError:
                 continue
     return out
+
+
+def bad_jsonl_lines(path: Path) -> list[tuple[int, str]]:
+    """解析不了的行，返回 [(行号, 行首 60 字符)]。行号从 1 起，能直接跳过去改。
+
+    这是 `read_jsonl()` 那个 `continue` 的另一半。jsonl 是人真的会去手改的格式
+    （一行一条、没有缩进、逗号引号全靠自己数），而改坏的后果默认是**静默**的。
+    """
+    if not path.exists():
+        return []
+    bad = []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return [(0, f"整个文件读不了：{exc}")]
+    for n, line in enumerate(text.splitlines(), 1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError as exc:
+            bad.append((n, f"{line[:60]}…　（{exc.msg}，第 {exc.colno} 列）"))
+            continue
+        if not isinstance(obj, dict):
+            bad.append((n, f"{line[:60]}…　（是 {type(obj).__name__}，不是对象）"))
+    return bad
 
 
 def write_jsonl(path: Path, records: Iterable[dict], *, sort_key=None) -> None:
