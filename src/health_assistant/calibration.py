@@ -199,7 +199,12 @@ def _num(row: dict, *keys):
 
 
 def load_rules() -> list[Rule]:
-    """读全部生效规则。被 supersede 掉的不返回，但它们仍留在文件里。"""
+    """读全部生效规则。被 supersede 掉的不返回，但它们仍留在文件里。
+
+    jsonl 没有注释语法，所以文件头上那行 `{"_comment": [...]}` 是靠
+    「action 不在 ACTIONS 里就跳过」被忽略的。写规则的人打开文件第一眼
+    就该看见怎么填 —— 把用法藏在文档里，等于赌他会去翻文档。
+    """
     rows = _rules_raw()
     dead = {d for r in rows for d in _supersedes(r.get("supersedes"))}
     out = []

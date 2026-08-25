@@ -433,3 +433,27 @@ class TestSupersedesMany:
         loaded = calibration.load_rules()[0]
         assert loaded.id == b.id
         assert loaded.supersedes == (a.id, "OLD")
+
+
+class TestCommentRow:
+    """jsonl 没有注释语法，所以文件头上放一行 `{"_comment": [...]}`。
+
+    写规则的人打开文件第一眼就该看见怎么填 —— 把用法藏在文档里，
+    等于赌他会去翻文档。靠「action 不在白名单里就跳过」被忽略。
+    """
+
+    def test_comment_row_is_ignored(self, rules_file):
+        rules_file.write_text(
+            store.dumps({"_comment": ["怎么填", "hc calib set … --ratio 0.5"]}) + "\n"
+            + store.dumps({"id": "A", "movement": "面拉", "action": "scale",
+                           "ratio": 0.5, "gym": "甲馆"}) + "\n",
+            encoding="utf-8")
+        assert [r.id for r in calibration.load_rules()] == ["A"]
+        assert calibration.retired_rows() == []      # 注释不是「失效的规则」
+
+    def test_rules_can_still_be_appended_after_it(self, rules_file):
+        rules_file.write_text(
+            store.dumps({"_comment": ["怎么填"]}) + "\n", encoding="utf-8")
+        r = calibration.add_rule("面拉", "scale", ratio=0.5, gym="甲馆")
+        assert [x.id for x in calibration.load_rules()] == [r.id]
+        assert "_comment" in rules_file.read_text(encoding="utf-8")
