@@ -224,10 +224,24 @@ def check(*, verbose: bool = False) -> int:
         ("movements/pattern-balance.json", "结构平衡规则"),
         ("training/training-landmarks.json", "训练量参考区间"),
         ("measurement/load-measurement.md", "负荷计量规程（绳索传动比）"),
+        ("movements/implement-loading.json", "器械计量口径表"),
+        ("movements/site-dependence.json", "场地依赖性表（换馆能不能比）"),
     ):
         p = KNOWLEDGE_DIR / rel
         mark = OK if p.exists() else WARN
         lines.append(f"  {mark.rstrip()} {desc}{'' if p.exists() else '  ← 缺失'}")
+
+    # 这两张表**坏掉的样子是没有样子**：口径表坏了，双哑铃动作的吨位静默少算
+    # 一半；场地表坏了，换馆之后连深蹲的进步也被藏起来。屏幕上一个字的错都没有。
+    #
+    # `loading.warnings()` 的 docstring 从第一天就写着「给 hc doctor 用」，
+    # 但一直没人调它 —— 一个为了防静默失效而写的函数，自己静默失效了。
+    # 2026-08-23 接上。
+    from . import gyms as _gyms
+    from . import loading as _loading
+    for w in _loading.warnings() + _gyms.warnings():
+        lines.append(f"  {BAD} {w}")
+        todo.append(w)
 
     # 语气层单独查。核心在、语气文件丢了，教练还能用但会变得干巴 ——
     # 这种「降级但没坏」的状态必须说出来，否则用户只会觉得「换了没反应」。

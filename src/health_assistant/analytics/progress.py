@@ -85,6 +85,18 @@ class MovementProgress:
     e1rm: Delta = field(default_factory=lambda: Delta(None, None))
     bodyweight: bool = False
     assisted: bool = False
+    # 计时类动作：成绩看秒不看次。见 compare.MovementDelta 上同名字段的说明。
+    timed: bool = False
+    best_time: Delta = field(default_factory=lambda: Delta(None, None))
+    time_total: Delta = field(default_factory=lambda: Delta(None, None))
+    # 换馆且这个动作的负荷依赖场地 —— 次数和容量照常比，负荷两端置空。
+    site_incomparable: bool = False
+    gym_before: str | None = None
+    gym_after: str | None = None
+    # 为了找同一个馆，跳过了更近的那一次。跳过谁必须说出来 ——
+    # 「上一次」突然不是字面上的上一次，读的人有权知道。
+    skipped_date: str | None = None
+    skipped_gym: str | None = None
 
     @property
     def is_new(self) -> bool:
@@ -92,7 +104,8 @@ class MovementProgress:
 
     @property
     def loads_comparable(self) -> bool:
-        return at_least(self.confidence, "variant")
+        return (at_least(self.confidence, "variant")
+                and not self.site_incomparable)
 
 
 def _movements_of(stats: SessionStats) -> list[MovementStats]:
@@ -122,6 +135,7 @@ def movement_progress(current: SessionStats, history: list[SessionStats],
         pat = pattern_of(cur.name, cur.group)
 
         exact_hit = variant_hit = None
+        same_gym_hit = None          # 同馆的同名记录，可能比 exact_hit 更早
         occurrences = 0
         for s in past:
             if _days(current.date, s.date) and _days(current.date, s.date) > max_lookback_days:
@@ -131,6 +145,13 @@ def movement_progress(current: SessionStats, history: list[SessionStats],
                     occurrences += 1
                     if exact_hit is None:
                         exact_hit = (s, m)
+                    # 器械动作跨馆比不了。与其两手一摊，不如往前多翻几次找同馆的
+                    # 那一回 —— 用户 2026-08-23：「能比较的还是尽可能去比较，
+                    # 策略太保守导致经常得不出结果」。代价是「上一次」不再是字面
+                    # 上的上一次，所以下面必须把跳过了谁写出来。
+                    if (same_gym_hit is None and current.gym and s.gym
+                            and s.gym == current.gym):
+                        same_gym_hit = (s, m)
                 elif (variant_hit is None
                       and m.name not in current_names
                       and family_of(m.name) == fam
@@ -140,25 +161,50 @@ def movement_progress(current: SessionStats, history: list[SessionStats],
         hit, conf = (exact_hit, "exact") if exact_hit else (
             (variant_hit, "variant") if variant_hit else (None, "none"))
 
+        # 最近那次在别的馆、而这个动作又吃场地 —— 换成同馆的那次，
+        # 换出来的是一个真结论，而不是一个空格。
+        skipped = None
+        if (exact_hit and same_gym_hit and same_gym_hit is not exact_hit
+                and not cur.load_portable
+                and current.gym and exact_hit[0].gym != current.gym):
+            skipped = exact_hit[0]
+            hit, conf = same_gym_hit, "exact"
+
         mp = MovementProgress(
             name=cur.name, group=cur.group, pattern=pat, confidence=conf,
-            occurrences=occurrences, bodyweight=cur.bodyweight, assisted=cur.assisted)
+            occurrences=occurrences, bodyweight=cur.bodyweight, assisted=cur.assisted,
+            timed=cur.timed, gym_after=current.gym)
 
         if hit is not None:
             s_prev, m_prev = hit
+            # 换馆 + 器械类 = 换了把尺。两边都标了场地才算数：
+            # None 是「不知道」，不是「同一个馆」。
+            blind = bool(current.gym and s_prev.gym and current.gym != s_prev.gym
+                         and not (cur.load_portable and m_prev.load_portable))
+            mp.site_incomparable = blind
+            mp.gym_before = s_prev.gym
+            if skipped is not None:
+                mp.skipped_date, mp.skipped_gym = skipped.date, skipped.gym
             mp.matched_name = m_prev.name
             mp.last_date = s_prev.date
             mp.days_since = _days(current.date, s_prev.date)
             mp.sets = Delta(float(m_prev.sets_done), float(cur.sets_done))
             mp.reps = Delta(m_prev.reps_total, cur.reps_total)
-            mp.top_load = Delta(m_prev.top_load_kg, cur.top_load_kg)
+            mp.top_load = (Delta(None, None) if blind
+                           else Delta(m_prev.top_load_kg, cur.top_load_kg))
             mp.volume = Delta(m_prev.volume_kg, cur.volume_kg)
-            mp.e1rm = Delta(m_prev.best_e1rm, cur.best_e1rm)
+            mp.e1rm = (Delta(None, None) if blind
+                       else Delta(m_prev.best_e1rm, cur.best_e1rm))
+            mp.timed = cur.timed or m_prev.timed
+            mp.best_time = Delta(m_prev.best_time_s, cur.best_time_s)
+            mp.time_total = Delta(m_prev.time_s_total, cur.time_s_total)
         else:
             mp.sets = Delta(None, float(cur.sets_done))
             mp.volume = Delta(None, cur.volume_kg)
             mp.top_load = Delta(None, cur.top_load_kg)
             mp.e1rm = Delta(None, cur.best_e1rm)
+            mp.best_time = Delta(None, cur.best_time_s)
+            mp.time_total = Delta(None, cur.time_s_total)
 
         out.append(mp)
     return out
@@ -179,6 +225,12 @@ class PatternComparison:
     load_confidence: str             # 模式内是否存在同名/同族动作
     movements_now: list[str] = field(default_factory=list)
     movements_then: list[str] = field(default_factory=list)
+    # 换馆，且这个模式里至少有一个动作的负荷依赖场地。
+    # 组数和容量照常比 —— 容量是「练了多少」，换馆不改变这件事；
+    # top_e1rm 是「多强」，那个跨馆不成立。
+    site_incomparable: bool = False
+    gym_before: str | None = None
+    gym_after: str | None = None
 
     @property
     def has_anchor(self) -> bool:
@@ -256,8 +308,14 @@ def pattern_comparisons(current: SessionStats, history: list[SessionStats],
         else:
             conf = "pattern"
 
+        # 换馆：只要这个模式里有一个动作的负荷依赖场地，峰值 1RM 就不能跨馆比。
+        # 模式层是把不同动作汇到一起的，所以判据取「有没有」而不是「是不是全部」——
+        # 一个哈克机就足以让这个模式的峰值失真。
+        blind = bool(current.gym and prev_s.gym and current.gym != prev_s.gym
+                     and not all(m.load_portable for m in cur_ms + prev_ms))
+
         # 1RM 只在有同名/同族动作时才比，否则不同动作的峰值没有可比性
-        if at_least(conf, "variant"):
+        if at_least(conf, "variant") and not blind:
             e1 = Delta(_max(m.best_e1rm for m in prev_ms),
                        _max(m.best_e1rm for m in cur_ms))
         else:
@@ -265,6 +323,7 @@ def pattern_comparisons(current: SessionStats, history: list[SessionStats],
 
         out.append(PatternComparison(
             group=group, pattern=pattern, note=pattern_note(group, pattern),
+            site_incomparable=blind, gym_before=prev_s.gym, gym_after=current.gym,
             last_date=prev_s.date, days_since=_days(current.date, prev_s.date),
             sets=Delta(float(sum(m.sets_done for m in prev_ms)),
                        float(sum(m.sets_done for m in cur_ms))),

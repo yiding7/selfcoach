@@ -11,7 +11,7 @@ import statistics
 from dataclasses import dataclass, field
 from functools import lru_cache
 
-from .. import loading
+from .. import gyms, loading
 from ..config import KNOWLEDGE_DIR
 from ..taxonomy import Classification, classify_movement
 
@@ -251,7 +251,12 @@ class MovementStats:
     # calib_ratio 不是 None 就说明这里的重量已经被折算过，报告里要说出来 ——
     # 一个被悄悄改过的数字比一个明显错的数字危险得多。
     calib_ratio: float | None = None
-    compare_excluded: bool = False     # 口径存疑，本次不参与配对（组数/容量照常计）
+    calib_offset_kg: float | None = None   # 同上，加法那一路（滑车自重 / 配重 / 助力）
+    # 换馆之后这个负荷数字还成不成立。杠铃 64kg 在哪个馆都是 64kg；
+    # 哈克机 107kg 换台机器就不是同一个量。表在
+    # knowledge/movements/site-dependence.json，认不出来时保守取 False。
+    load_portable: bool = False
+    site_rule_default: bool = False    # 走了默认值 —— 值得补进表里
 
     @property
     def avg_rpe(self) -> float | None:
@@ -276,6 +281,9 @@ class SessionStats:
     # 标了难度的动作 / 有效动作。和 rpe_coverage 是两个独立来源：
     # 训记的 rpe 字段实际从不填，难度标签才是这个 app 里真实可得的强度信号。
     difficulty_coverage: float = 0.0
+    # 这次在哪个馆练的。None = 没标过 —— **不是「同一个馆」**，是「不知道」。
+    # 两者绝不能混：不知道时一切照旧，知道且不同才降级负荷对比。
+    gym: str | None = None
 
     @property
     def has_intensity_signal(self) -> bool:
@@ -342,6 +350,8 @@ def movement_stats(m: dict, bodyweight_kg: float | None) -> MovementStats:
         if diffs:
             imbalance = statistics.fmean(diffs)
 
+    site = gyms.site_dependence(m.get("name", ""))
+
     return MovementStats(
         name=m.get("name", ""),
         group=cls.group,
@@ -365,7 +375,9 @@ def movement_stats(m: dict, bodyweight_kg: float | None) -> MovementStats:
         bodyweight=any(is_bodyweight(m, s) for s in sets) if sets else False,
         assisted=is_assisted(m),
         calib_ratio=(m.get("_calib") or {}).get("ratio"),
-        compare_excluded=bool((m.get("_calib") or {}).get("exclude_compare")),
+        calib_offset_kg=(m.get("_calib") or {}).get("offset_kg"),
+        load_portable=site.portable,
+        site_rule_default=site.is_default,
     )
 
 
@@ -394,6 +406,7 @@ def session_stats(session: dict, bodyweight_kg: float | None = None) -> SessionS
         title=session.get("title") or "",
         duration_min=(session["duration_s"] / 60.0) if session.get("duration_s") else None,
         kcal=session.get("kcal"),
+        gym=(session.get("gym") or None),
         movements=movements,
         volume_kg=sum(known_vol) if known_vol else None,
         sets_done=sets_done,

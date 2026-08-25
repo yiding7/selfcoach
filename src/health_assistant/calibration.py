@@ -29,19 +29,55 @@
 而且一旦发现折算错了就再也回不去了。规则文件只追加、可以被 supersede，
 半年后回看能知道「当时为什么这么折算」。
 
-## 四种处置
+## 前提：记录口径先统一
 
-用户看到预警时有四个选择，对应关系：
+折算只在「记录本身有一条固定规矩」时才成立。用户 2026-08-25 定死的规矩是：
 
-| 用户想做的 | action | 效果 |
-|---|---|---|
-| 改原始记录数据 | —— | 不写规则。去训记改，然后 `hc sync train --date X --force` |
-| 只改项目内的数（不动数据源）| `scale` | 读取时乘一个系数，原始文件不动 |
-| 忽略本次该动作的对比 | `ignore` | 该动作该次不参与配对，但组数/容量照常计入 |
-| 确认是真实变化 | `confirm` | 不再预警。数据一个字不动 |
+    自由重量（杠铃）   记 **杆 + 片**
+    器械               只记 **片重**
+
+于是每台机器和「真实的力」之间只差一个固定的变换，而那个变换是机器的属性。
+
+## 两种变换，就这两种
+
+| 变换 | action | 公式 | 用在哪 |
+|---|---|---|---|
+| 乘法 | `scale` | `实际 = 记录 × ratio` | 绳索 / 龙门的滑轮传动比 |
+| 加法 | `offset` | `实际 = 记录 + offset_kg` | 哈克 / 腿举的滑车自重；引体的配重与助力 |
+
+`offset_kg` **可以是负的**：引体向上挂 10kg 配重是 `+10`，套助力带减 15kg 是 `-15`。
+同一个动作名，两种做法，一正一负，不用把它拆成两条曲线。
+
+**两种都挂在「馆 + 动作」上，没有日期。** 传动比和滑车自重是那台机器的物理属性，
+不随日期变化。用日期表达「在哪台机器上练的」，每换一次馆就要补一条规则，
+补漏一条就静默错一次。用户 2026-08-23 拍板作用域，2026-08-25 砍掉日期维度。
+
+## 三层，各管各的
+
+    data/training/**.jsonl        原始记录。**永远不改**
+    data/load-calibration.jsonl   口径规则。只追加，不修改
+    读取时                         store.load_sessions() 现场折算
+
+原始数据不动是硬要求。改原始数据会毁掉「这份记录换个模型也能复算」这个前提，
+而且一旦发现折算错了就再也回不去了。规则文件只追加、可以被 supersede，
+半年后回看能知道「当时为什么这么折算」。
+
+## 用户看到预警时的三个选择
+
+| 用户想做的 | 怎么做 |
+|---|---|
+| 改原始记录数据 | 不写规则。去训记改，然后 `hc sync train --since X --until X --force` |
+| 这台机器就是和别台不一样 | `scale` 或 `offset`，挂在那个馆的那个动作上 |
+| 确认这是真实变化 | `confirm`，只标那一天。**数据一个字不动** |
 
 `confirm` 是要留痕的：「我看过了，这是真的」和「还没人看过」是两回事，
-后者不该被静默当成前者。
+后者不该被静默当成前者。它不是变换，所以不算在上面那两种里。
+
+> **原来还有第四个选项 `ignore`（这次该动作不参与对比），2026-08-25 删掉了。**
+> 它存在的两条理由 —— 腿举和哈克的历史「只记片重 vs 记片重+start」—— 在记录
+> 口径统一之后都变成了一条 `offset` 规则。而 `ignore` 是这张表里唯一会**藏数据**
+> 的动作，能不留就不留。文件里的旧 `ignore` 行不删（只追加），
+> 但它们不再生效，`hc calib list` 会把它们单独列出来说明。
 """
 
 from __future__ import annotations
@@ -56,7 +92,10 @@ from .config import DATA_DIR
 PATH = DATA_DIR / "load-calibration.jsonl"
 SCHEMA = "ha.calib/1"
 
-ACTIONS = ("scale", "ignore", "confirm")
+# 两种变换 + 一个「我看过了」。`ignore` 2026-08-25 删掉 —— 见模块顶部。
+ACTIONS = ("scale", "offset", "confirm")
+TRANSFORMS = ("scale", "offset")     # 真的改数字的那两种，必须挂在馆上
+RETIRED_ACTIONS = ("ignore",)        # 旧文件里可能还有，读到就说出来，不静默跳过
 
 # ── 预警阈值 ────────────────────────────────────────────────────────────
 #
@@ -92,35 +131,43 @@ class Rule:
     movement: str
     action: str
     ratio: float | None = None
-    date_from: str | None = None      # 闭区间，None = 不限
-    date_to: str | None = None
+    # 只对这个馆生效。`scale` / `offset` **必须**有，`confirm` 必须没有。
+    #
+    # **这是比日期更对的作用域。** 传动比和滑车自重是那台机器的物理属性 ——
+    # 某个馆的龙门今天是 2:1、明天还是 2:1，它不随日期变化。用日期区间去表达
+    # 「在哪台机器上练的」，每换一次馆就要补一条规则，而且补漏一条就静默错一次。
+    # 挂在馆上则是一次定义、永久生效。
+    gym: str | None = None
+    # 加法常数，kg。**可以是负的**：引体挂 10kg 配重是 +10，套助力带是 -15。
+    offset_kg: float | None = None
+    # 只有 `confirm` 用：确认的是哪一天那一次。变换类规则没有日期。
+    date: str | None = None
     note: str = ""
-    supersedes: str | None = None
+    # 推翻了哪几条旧规则。**可以是多条** —— 一条 offset 规则同时取代
+    # 「腿举的 ignore」和「更早那版 offset」是常有的事，逼人一条条拆开写，
+    # 只会让人干脆不写，然后旧规则永远挂在那儿。
+    supersedes: tuple[str, ...] = ()
 
-    def covers(self, movement: str, date: str) -> bool:
-        if movement != self.movement:
-            return False
-        if self.date_from and date < self.date_from:
-            return False
-        if self.date_to and date > self.date_to:
-            return False
-        return True
+    def covers(self, movement: str, gym: str | None = None) -> bool:
+        """这条变换规则适不适用于「某个馆的某个动作」。
 
-    @property
-    def span(self) -> str:
-        if self.date_from and self.date_from == self.date_to:
-            return self.date_from
-        lo = self.date_from or "最早"
-        hi = self.date_to or "至今"
-        return f"{lo} ~ {hi}"
+        `gym` 是 `None` 表示**那次不知道在哪练的** —— 一律不适用。
+        「不知道」绝不能当成「就是那个馆」：没标场地的历史记录会被一条
+        后来才定义的折算规则悄悄改掉，那是最难查的一种错。
+        """
+        return (movement == self.movement
+                and self.action in TRANSFORMS
+                and bool(self.gym) and gym == self.gym)
 
     def describe(self) -> str:
         what = {
             "scale": f"折算 ×{self.ratio:g}" if self.ratio else "折算",
-            "ignore": "不参与对比",
+            "offset": (f"{self.offset_kg:+g}kg" if self.offset_kg is not None
+                       else "加常数"),
             "confirm": "已确认为真实数据",
         }.get(self.action, self.action)
-        return f"[{self.id}] {self.movement}　{self.span}　{what}"
+        scope = f"@{self.gym}" if self.gym else (self.date or "—")
+        return f"[{self.id}] {self.movement}　{scope}　{what}"
 
 
 def _rules_raw() -> list[dict]:
@@ -130,24 +177,62 @@ def _rules_raw() -> list[dict]:
         return []
 
 
+def _supersedes(value) -> tuple[str, ...]:
+    """`"A"` / `"A,B"` / `["A","B"]` 都认。空的一律是空元组。"""
+    if not value:
+        return ()
+    if isinstance(value, str):
+        return tuple(x.strip() for x in value.split(",") if x.strip())
+    return tuple(str(x).strip() for x in value if str(x).strip())
+
+
+def _num(row: dict, *keys):
+    """取第一个能转成 float 的字段。多个 key 是为了兼容改过名的旧文件。"""
+    for k in keys:
+        if row.get(k) is None:
+            continue
+        try:
+            return float(row[k])
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
 def load_rules() -> list[Rule]:
     """读全部生效规则。被 supersede 掉的不返回，但它们仍留在文件里。"""
     rows = _rules_raw()
-    dead = {r.get("supersedes") for r in rows if r.get("supersedes")}
+    dead = {d for r in rows for d in _supersedes(r.get("supersedes"))}
     out = []
     for r in rows:
         if r.get("id") in dead or r.get("action") not in ACTIONS:
             continue
-        try:
-            ratio = float(r["ratio"]) if r.get("ratio") is not None else None
-        except (TypeError, ValueError):
-            ratio = None
+        gym = str(r.get("gym") or "").strip() or None
+        # date_from/date_to 是 2026-08-25 之前的字段。变换类规则不再有日期区间，
+        # 但旧行里可能有单日的 confirm 写成了 from == to。
+        date = r.get("date") or r.get("date_to") or r.get("date_from")
         out.append(Rule(
             id=str(r.get("id") or ""), ts=str(r.get("ts") or ""),
             movement=str(r.get("movement") or ""), action=str(r["action"]),
-            ratio=ratio, date_from=r.get("date_from"), date_to=r.get("date_to"),
-            note=str(r.get("note") or ""), supersedes=r.get("supersedes")))
+            ratio=_num(r, "ratio"), gym=gym,
+            # `start_kg` 是旧名字。语义没变（滑车自重也是个加法常数），
+            # 只是新名字容得下负数 —— 助力带是负的 offset，叫「起始重量」讲不通。
+            offset_kg=_num(r, "offset_kg", "start_kg"),
+            date=str(date) if date else None,
+            note=str(r.get("note") or ""),
+            supersedes=_supersedes(r.get("supersedes"))))
     return out
+
+
+def retired_rows() -> list[dict]:
+    """文件里那些 action 已经不再支持的行。
+
+    **不能静默跳过。** 一条写在文件里、看起来生效、实际不生效的规则，
+    是这个项目最不能接受的那种错。`hc calib list` 会把它们单独列出来。
+    """
+    rows = _rules_raw()
+    dead = {d for r in rows for d in _supersedes(r.get("supersedes"))}
+    return [r for r in rows
+            if r.get("id") not in dead and r.get("action") in RETIRED_ACTIONS]
 
 
 def _next_id(today: dt.date) -> str:
@@ -157,8 +242,9 @@ def _next_id(today: dt.date) -> str:
 
 
 def add_rule(movement: str, action: str, *, ratio: float | None = None,
-             date_from: str | None = None, date_to: str | None = None,
-             note: str = "", supersedes: str | None = None,
+             gym: str | None = None, offset_kg: float | None = None,
+             date: str | None = None, note: str = "",
+             supersedes: str | list[str] | None = None,
              today: dt.date | None = None) -> Rule:
     # 动作名为空的规则永远匹配不上（covers 先比 movement），但文件只追加，
     # 这行垃圾就永久留在那儿了。宁可在这里拒绝，也不要写一条死规则。
@@ -169,28 +255,46 @@ def add_rule(movement: str, action: str, *, ratio: float | None = None,
         raise ValueError(f"action 只能是 {ACTIONS} 之一，收到 {action!r}")
     if action == "scale" and (not ratio or ratio <= 0):
         raise ValueError("scale 必须给一个正的 ratio")
-    for label, d in (("--from/--date", date_from), ("--to/--date", date_to)):
-        if d:
-            try:
-                dt.date.fromisoformat(d)
-            except ValueError:
-                raise ValueError(f"{label} 的日期格式不对：{d!r}，要 YYYY-MM-DD") from None
-    if date_from and date_to and date_from > date_to:
-        raise ValueError(f"起始日期 {date_from} 晚于结束日期 {date_to}")
+    # 0 是「不用改」，写成规则毫无意义，但会让人以为这个动作已经标定过了。
+    # 负数是**合法的**：助力带就是负的 offset。
+    if action == "offset" and not offset_kg:
+        raise ValueError("offset 要给一个非 0 的 kg 数（配重为正，助力为负）")
+    gym = (gym or "").strip() or None
+
+    # 变换类规则挂在「馆 + 动作」上，没有日期；confirm 反过来。
+    # 两个作用域搅在一起，半年后没人说得清一条记录到底被哪一条改过。
+    if action in TRANSFORMS:
+        if not gym:
+            raise ValueError(
+                f"{action} 规则必须指定 --gym。传动比和滑车自重是那台机器的属性，"
+                "不挂在馆上就没法说清它作用于哪些记录")
+        if date:
+            raise ValueError("变换类规则不要带日期 —— 机器的属性不随日期变化")
+    else:
+        if gym:
+            raise ValueError("confirm 是对某一次的确认，不要带 --gym")
+        if not date:
+            raise ValueError("confirm 要指定 --date（确认的是哪一天那一次）")
+    if date:
+        try:
+            dt.date.fromisoformat(date)
+        except ValueError:
+            raise ValueError(f"--date 的格式不对：{date!r}，要 YYYY-MM-DD") from None
 
     today = today or dt.date.today()
     rule = Rule(id=_next_id(today),
                 ts=dt.datetime.now().astimezone().replace(microsecond=0).isoformat(),
                 movement=movement, action=action, ratio=ratio,
-                date_from=date_from, date_to=date_to, note=note,
-                supersedes=supersedes)
+                gym=gym, offset_kg=offset_kg, date=date, note=note,
+                supersedes=_supersedes(supersedes))
     PATH.parent.mkdir(parents=True, exist_ok=True)
     with PATH.open("a", encoding="utf-8") as fh:
         fh.write(store.dumps({
             "schema": SCHEMA, "id": rule.id, "ts": rule.ts,
             "movement": rule.movement, "action": rule.action, "ratio": rule.ratio,
-            "date_from": rule.date_from, "date_to": rule.date_to,
-            "note": rule.note, "supersedes": rule.supersedes}) + "\n")
+            "gym": rule.gym, "offset_kg": rule.offset_kg, "date": rule.date,
+            "note": rule.note,
+            "supersedes": list(rule.supersedes) or None}) + "\n")
     return rule
 
 
@@ -217,14 +321,16 @@ def apply_rules(sessions: list[dict], rules: list[Rule] | None = None) -> list[d
     if not rules:
         return sessions
 
+    confirmed = {(r.movement, r.date) for r in rules if r.action == "confirm"}
     out = []
     for s in sessions:
         date = s.get("date", "")
+        gym = s.get("gym") or None
         new_movements, touched = [], False
         for m in s.get("movements") or []:
             name = m.get("name") or ""
-            hits = [r for r in rules if r.covers(name, date)]
-            if not hits:
+            hits = [r for r in rules if r.covers(name, gym)]
+            if not hits and (name, date) not in confirmed:
                 new_movements.append(m)
                 continue
 
@@ -242,9 +348,24 @@ def apply_rules(sessions: list[dict], rules: list[Rule] | None = None) -> list[d
                     for st in (m.get("sets") or [])]
                 marks["ratio"] = scale.ratio
                 marks["rule_id"] = scale.id
-            if any(r.action == "ignore" for r in hits):
-                marks["exclude_compare"] = True
-            if any(r.action == "confirm" for r in hits):
+            # offset 是**加法**常数，和传动比那个乘法常数是两回事。
+            # 先乘后加：传动比作用在配重片读数上，滑车自重（或配重/助力）
+            # 是读数之外另加的一块。
+            # 两者同时命中同一个动作在现实里几乎不会发生，但顺序必须定死，
+            # 否则同一份数据在两次运行里可能得出不同的结果。
+            off = next((r for r in reversed(hits) if r.action == "offset"), None)
+            if off and off.offset_kg and _scalable(m):
+                base = m2.get("sets") or m.get("sets") or []
+                m2["sets"] = [
+                    {**st,
+                     "weight_kg": (st["weight_kg"] + off.offset_kg
+                                   if st.get("weight_kg") is not None else None),
+                     "left_weight_kg": (st["left_weight_kg"] + off.offset_kg
+                                        if st.get("left_weight_kg") is not None else None)}
+                    for st in base]
+                marks["offset_kg"] = off.offset_kg
+                marks["rule_id"] = off.id
+            if (name, date) in confirmed:
                 marks["confirmed"] = True
 
             if marks:
@@ -319,7 +440,8 @@ def detect_jumps(stats, rules: list[Rule] | None = None) -> list[Jump]:
     跨动作比负荷本来就没意义，那是 compare 层已经挡掉的事。
     """
     rules = load_rules() if rules is None else rules
-    seen: dict[str, tuple[str, float, float]] = {}
+    confirmed = {(r.movement, r.date) for r in rules if r.action == "confirm"}
+    seen: dict[str, tuple[str, float, float, str | None]] = {}
     jumps: list[Jump] = []
 
     for s in stats:
@@ -329,11 +451,20 @@ def detect_jumps(stats, rules: list[Rule] | None = None) -> list[Jump]:
             if not m.top_load_kg or m.sets_done == 0:
                 continue
             prev = seen.get(m.name)
-            seen[m.name] = (s.date, m.top_load_kg, m.reps_total)
+            seen[m.name] = (s.date, m.top_load_kg, m.reps_total, s.gym)
             if not prev:
                 continue
-            prev_date, prev_load, prev_reps = prev
+            prev_date, prev_load, prev_reps, prev_gym = prev
             if not prev_load:
+                continue
+            # **换馆已经解释了这个跳变，不用再问一遍。**
+            # 两边都标了场地、场地不同、而这个动作的负荷本来就不跨馆成立
+            # （器械/绳索/史密斯…，判据表见 site-dependence.json）—— 那么
+            # 「数字变了」是必然的，不是发现。hc compare 那一侧已经把这类
+            # 对比的负荷置空了，这里再报一次只会把真信号淹掉：实测 6 条命中
+            # 里有 5 条是这种。自由重量不在此列，64kg 在哪个馆都是 64kg。
+            if (prev_gym and s.gym and prev_gym != s.gym
+                    and not m.load_portable):
                 continue
             if prev_load < MIN_LOAD_KG or m.top_load_kg < MIN_LOAD_KG:
                 continue
@@ -353,22 +484,21 @@ def detect_jumps(stats, rules: list[Rule] | None = None) -> list[Jump]:
                 if not (REPS_STABLE_LOW <= rr <= REPS_STABLE_HIGH):
                     continue    # 次数也大幅变了 —— 更像有意换次数区间
 
-            # ⚠️ 只认覆盖**后一天**的规则。
+            # ⚠️ 只认标了**后一天**的 confirm。
             #
-            # 曾经写成 `covers(后一天) or covers(前一天)`，那是个静默漏报：
+            # 曾经写成 `覆盖后一天 or 覆盖前一天`，那是个静默漏报：
             # 每个日期都会既当某一对的「后一天」、又当下一对的「前一天」，
             # 所以给 D 写的 confirm 会连带把 (D → 下一次) 那个跳变也标成已处理。
             # 用户确认了一次真实涨幅，下个月换机位造成的假涨幅就再也不会预警。
             #
-            # 只认后一天是安全的：CLI 给出的 ignore/confirm 命令用的就是后一天；
-            # 而 scale 规则会真的改掉负荷，跳变自然消失，不需要靠这里标记。
-            # 跨越两天的区间规则同时覆盖两端，也照样能命中。
-            hit = next((r for r in rules if r.covers(m.name, s.date)), None)
+            # 只认后一天是安全的：CLI 给出的 confirm 命令用的就是后一天；
+            # 而 scale / offset 会真的改掉负荷，跳变自然消失，不靠这里标记。
+            hit = (m.name, s.date) in confirmed
             jumps.append(Jump(
                 movement=m.name, date=s.date, prev_date=prev_date,
                 load=m.top_load_kg, prev_load=prev_load,
                 reps=m.reps_total, prev_reps=prev_reps, gap_days=gap,
-                resolved_by=hit.id if hit else None))
+                resolved_by=s.date if hit else None))
     return jumps
 
 

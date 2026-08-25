@@ -139,6 +139,33 @@ def evaluate_group(cmp: GroupComparison) -> list[Finding]:
     # ── 逐动作 ──
     for md in cmp.movements:
         if md.status == "paired":
+            # 计时类动作没有 1RM 也没有次数，下面每一条判据的输入都是 None ——
+            # 于是一次真实的 35s→42s（+20%）在优点和缺点里**一条都不会出现**。
+            # 这和「报错的结论」不同，它是**静默省略**：报告看起来正常，
+            # 只是那个动作凭空消失了。所以计时类走自己这一支，然后 continue。
+            if md.timed:
+                t_pct = md.best_time.pct_change
+                if t_pct is not None and t_pct >= 2.0:
+                    out.append(Finding(
+                        code="PROGRESSED_TIME", polarity="优点", subject=md.name,
+                        text=f"{md.name} 最长一组 {md.best_time.fmt('s', 0)}，"
+                             f"静态保持的进步就是看这个。",
+                        metrics={"before": md.best_time.before,
+                                 "after": md.best_time.after, "pct": t_pct}))
+                elif t_pct is not None and t_pct <= -10.0:
+                    out.append(Finding(
+                        code="TIME_REGRESSED", polarity="缺点", subject=md.name, severity=1,
+                        text=f"{md.name} 最长一组 {md.best_time.fmt('s', 0)}"
+                             f"（{t_pct:+.1f}%）。",
+                        metrics={"before": md.best_time.before,
+                                 "after": md.best_time.after, "pct": t_pct},
+                        links_to=["ACTION_PRIORITIZE"]))
+                    out.append(Finding(
+                        code="ACTION_PRIORITIZE", polarity="改进点", subject=md.name,
+                        text=f"下次把 {md.name} 排到 {cmp.group} 训练的最前面做，"
+                             f"在最有力气的时候练它，通常一次就能恢复。",
+                        metrics={"movement": md.name}))
+                continue
             load_pct = md.top_load.pct_change
             reps_up = (md.reps.abs_change or 0) > 0
             if load_pct is not None and load_pct >= 2.0:
@@ -320,6 +347,19 @@ def evaluate_movement_progress(items) -> list[Finding]:
         e_pct = mp.e1rm.pct_change
         load_pct = mp.top_load.pct_change
         reps_up = (mp.reps.abs_change or 0) > 0
+
+        # 计时类动作：和上面 group 层同一个道理，指标在秒里。
+        # 放在 assisted 之前，因为两者互斥而这条更早能确定。
+        if mp.timed:
+            t_pct = mp.best_time.pct_change
+            if t_pct is not None and t_pct >= 2.0:
+                out.append(Finding(
+                    code="MOVEMENT_TIME_UP", polarity="优点", subject=mp.name,
+                    text=f"{mp.name} 最长一组 {mp.best_time.fmt('s', 0)}{caveat}"
+                         f"{gap and '，' + gap}。静态保持的进步就是看这个。",
+                    metrics={"before": mp.best_time.before, "after": mp.best_time.after,
+                             "pct": t_pct, "confidence": mp.confidence}))
+            continue
 
         if mp.assisted:
             # 辅助器械：配重降低 = 变强，方向和普通动作相反

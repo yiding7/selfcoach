@@ -181,6 +181,10 @@ def load_sessions(start: str | None = None, end: str | None = None,
     绳索器械换机位会让同一动作的标称重量差一倍，折算在读取时做。
     **原始文件永远不改**，见 `calibration.py` 顶部的说明。
 
+    同时挂上 `data/gyms.jsonl` 里的场地标注（`gym` 字段）。
+    这一步不受 `calibrate` 开关影响 —— 它只是**附加事实**，一个字节的
+    重量数字都不动，关掉它没有意义。没标过的那天不会有这个字段。
+
     ⚠️ 写盘路径（sync / rebuild / log）用的是 `load_sessions_month()`，
     刻意不经过这里。折算一旦被烘进原始文件就再也回不去了。
     `calibrate=False` 留给测试和「我要看原始值」的场合。
@@ -189,12 +193,20 @@ def load_sessions(start: str | None = None, end: str | None = None,
         return []
     out: list[dict] = []
     for p in sorted(TRAINING_DIR.rglob("*.jsonl")):
-        out.extend(read_jsonl(p))
+        # 只认长得像训练记录的行。这个目录是 rglob 全扫的，任何一个别的用途的
+        # jsonl 掉进来都会变成「0 个动作」的幽灵训练，然后 hc compare 会挑中它
+        # 并报「无有效动作」—— 一个空对象比一个报错难查得多。
+        out.extend(r for r in read_jsonl(p) if "movements" in r)
     if start:
         out = [s for s in out if s.get("date", "") >= start]
     if end:
         out = [s for s in out if s.get("date", "") <= end]
     out.sort(key=lambda s: (s.get("date", ""), s.get("start_ms") or 0, s.get("id", "")))
+    # ⚠️ **场地必须先挂上。** 口径规则现在可以按馆生效（`hc calib set --gym`），
+    # 而规则是靠 `session["gym"]` 匹配的 —— 反过来的顺序会让每一条按馆的规则
+    # 永远匹配不到，而且是静默的：没有报错，只是折算没发生。
+    from .gyms import apply_to
+    out = apply_to(out)
     if calibrate:
         from .calibration import apply_rules
         out = apply_rules(out)

@@ -775,7 +775,8 @@ Claude Code 里日常使用完全不碰它。而且即便启用，它**只发聚
 | 体检报告原件 | `profile/medical/` | **模型**（你让它读时） | ❌ |
 | 「楼下那家做得清淡」这类个人菜品 | `profile/dish-pool.local.json`（`hc dice add`） | **脚本**，同名覆盖通用池 | ❌ |
 | 教一个动作属于哪个部位 | `data/movement-overrides.json`（`hc classify --learn`） | **脚本** | ❌ |
-| 绳索器械的负荷折算规则 | `data/load-calibration.jsonl`（`hc calib set`） | **脚本**，读取时折算 | ❌ |
+| 这次训练在哪个馆 | `data/gyms.jsonl`（`hc gym set`） | **脚本**，换馆时降级不可比的负荷 | ❌ |
+| 器械的负荷折算规则（传动比 / 滑车自重 / 助力） | `data/load-calibration.jsonl`（`hc calib set`） | **脚本**，读取时折算 | ❌ |
 
 两条相关的纪律：
 
@@ -795,6 +796,7 @@ Claude Code 里日常使用完全不碰它。而且即便启用，它**只发聚
 | 文件 | 规矩 |
 |---|---|
 | `data/training/raw/` | 训记返回的原始 JSON 原样存档。改了解析逻辑跑 `hc rebuild` **离线重算**，不重新联网同步（一年要 3 小时） |
+| `data/gyms.jsonl` | 场地标注只追加，后写的赢 |
 | `data/load-calibration.jsonl` | 负荷折算规则只追加。**折算在读取时做，原始记录一个字不改** |
 | `profile/coach-journal/` | 教练笔记只追加。改主意就追加一条 `--supersedes` 推翻旧的，不涂改 |
 | `profile/health-constraints.md`<br>`profile/personal-context.md` | 约束放宽或目标变更时，旧结论降格成带日期的历史行，**绝不删除** |
