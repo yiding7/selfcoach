@@ -59,6 +59,12 @@ def read_json(path: Path, default: Any = None) -> Any:
 
 
 def read_jsonl(path: Path) -> list[dict]:
+    """读一个 jsonl。**坏行跳过**，不抛异常 —— 一行手滑不该让整个命令挂掉。
+
+    但「跳过」必须配一个「说出来」，否则手改文件时打错一个引号，
+    那条规则就悄悄消失了：没有报错，只是折算不再发生。
+    说出来的那一半在 `bad_jsonl_lines()`，`hc doctor` 会扫全部 jsonl。
+    """
     if not path.exists():
         return []
     out = []
@@ -70,6 +76,33 @@ def read_jsonl(path: Path) -> list[dict]:
             except json.JSONDecodeError:
                 continue
     return out
+
+
+def bad_jsonl_lines(path: Path) -> list[tuple[int, str]]:
+    """解析不了的行，返回 [(行号, 行首 60 字符)]。行号从 1 起，能直接跳过去改。
+
+    这是 `read_jsonl()` 那个 `continue` 的另一半。jsonl 是人真的会去手改的格式
+    （一行一条、没有缩进、逗号引号全靠自己数），而改坏的后果默认是**静默**的。
+    """
+    if not path.exists():
+        return []
+    bad = []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return [(0, f"整个文件读不了：{exc}")]
+    for n, line in enumerate(text.splitlines(), 1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError as exc:
+            bad.append((n, f"{line[:60]}…　（{exc.msg}，第 {exc.colno} 列）"))
+            continue
+        if not isinstance(obj, dict):
+            bad.append((n, f"{line[:60]}…　（是 {type(obj).__name__}，不是对象）"))
+    return bad
 
 
 def write_jsonl(path: Path, records: Iterable[dict], *, sort_key=None) -> None:
@@ -181,6 +214,10 @@ def load_sessions(start: str | None = None, end: str | None = None,
     绳索器械换机位会让同一动作的标称重量差一倍，折算在读取时做。
     **原始文件永远不改**，见 `calibration.py` 顶部的说明。
 
+    同时挂上 `data/gyms.jsonl` 里的场地标注（`gym` 字段）。
+    这一步不受 `calibrate` 开关影响 —— 它只是**附加事实**，一个字节的
+    重量数字都不动，关掉它没有意义。没标过的那天不会有这个字段。
+
     ⚠️ 写盘路径（sync / rebuild / log）用的是 `load_sessions_month()`，
     刻意不经过这里。折算一旦被烘进原始文件就再也回不去了。
     `calibrate=False` 留给测试和「我要看原始值」的场合。
@@ -189,12 +226,20 @@ def load_sessions(start: str | None = None, end: str | None = None,
         return []
     out: list[dict] = []
     for p in sorted(TRAINING_DIR.rglob("*.jsonl")):
-        out.extend(read_jsonl(p))
+        # 只认长得像训练记录的行。这个目录是 rglob 全扫的，任何一个别的用途的
+        # jsonl 掉进来都会变成「0 个动作」的幽灵训练，然后 hc compare 会挑中它
+        # 并报「无有效动作」—— 一个空对象比一个报错难查得多。
+        out.extend(r for r in read_jsonl(p) if "movements" in r)
     if start:
         out = [s for s in out if s.get("date", "") >= start]
     if end:
         out = [s for s in out if s.get("date", "") <= end]
     out.sort(key=lambda s: (s.get("date", ""), s.get("start_ms") or 0, s.get("id", "")))
+    # ⚠️ **场地必须先挂上。** 口径规则现在可以按馆生效（`hc calib set --gym`），
+    # 而规则是靠 `session["gym"]` 匹配的 —— 反过来的顺序会让每一条按馆的规则
+    # 永远匹配不到，而且是静默的：没有报错，只是折算没发生。
+    from .gyms import apply_to
+    out = apply_to(out)
     if calibrate:
         from .calibration import apply_rules
         out = apply_rules(out)

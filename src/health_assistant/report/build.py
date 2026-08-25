@@ -59,12 +59,12 @@ def _d(obj):
     return obj
 
 
-def _delta(d, unit: str = "") -> dict:
+def _delta(d, unit: str = "", digits: int = 1) -> dict:
     # text 里就把单位放好，渲染层不要再拼 —— 否则会出现
     # 「3000 → 4300 ↑ +43% kg」这种单位跑到百分比后面的写法。
     return {"before": d.before, "after": d.after, "abs": d.abs_change,
             "pct": d.pct_change, "direction": d.direction,
-            "unit": unit, "text": d.fmt(unit)}
+            "unit": unit, "text": d.fmt(unit, digits)}
 
 
 def build(kind: str, start: dt.date, end: dt.date) -> dict:
@@ -136,12 +136,16 @@ def build(kind: str, start: dt.date, end: dt.date) -> dict:
                     "sets": _delta(md.sets, " 组"), "reps": _delta(md.reps, " 次"),
                     "top_load": _delta(md.top_load, " kg"), "volume": _delta(md.volume, " kg"),
                     "e1rm": _delta(md.e1rm, " kg"),
+                    # 计时类动作的成绩在秒里。不带这三个字段，报告表格里
+                    # 平板支撑那行会是「— / 0 → 0 次 / —」，看起来像没练。
+                    "timed": md.timed,
+                    "best_time": _delta(md.best_time, " s", 0),
+                    "time_total": _delta(md.time_total, " s", 0),
                 } for md in cmp.movements],
                 "added": cmp.added, "dropped": cmp.dropped,
                 # 口径存疑、被排除在配对之外的动作。**必须带进报告** ——
                 # 它们的组数和容量仍在组级合计里，逐动作表却不会出现，
                 # 不说明的话读者会发现行加不出总数而且没有任何解释。
-                "excluded": cmp.excluded,
             })
 
         # 处方：对本期练过的每个主要肌群
@@ -178,6 +182,9 @@ def build(kind: str, start: dt.date, end: dt.date) -> dict:
             "sets": _delta(m.sets, " 组"), "reps": _delta(m.reps, " 次"),
             "top_load": _delta(m.top_load, " kg"), "volume": _delta(m.volume, " kg"),
             "e1rm": _delta(m.e1rm, " kg"),
+            "timed": m.timed,
+            "best_time": _delta(m.best_time, " s", 0),
+            "time_total": _delta(m.time_total, " s", 0),
         } for m in mprog]
 
         pattern_block = [{

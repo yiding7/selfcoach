@@ -109,6 +109,55 @@ class TestPersonaHint:
         assert "没有生效" not in proc.stdout
 
 
+class TestCoachNameHint:
+    """教练自己的名字。三种状态和称呼一一对应，但多一条**识别**义务。
+
+    不注入这一条的后果不是「少了句寒暄」：agent 会把「阿尺，看下我的数据」
+    开头那个词当成一个不认识的东西，可能去当动作名查，也可能反问「谁」。
+    """
+
+    def test_the_names_reach_the_prompt(self, fake_repo):
+        _fake_hc(fake_repo, payload={
+            "tone_label": "平和", "addresses": [], "address_set": True,
+            "address_ok": True,
+            "coach_names": ["阿尺", "Chi"], "coach_name_set": True,
+            "coach_name_ok": True, "warnings": []})
+        out = _hint(fake_repo).stdout
+        assert "阿尺、Chi" in out
+        assert "就是在叫你" in out, "光给名字不够，得说清它也是被叫到的信号"
+
+    def test_an_explicitly_empty_name_still_instructs_the_agent(self, fake_repo):
+        """和称呼同一条：空是答案。什么都不注入，agent 会自己取一个名字。"""
+        _fake_hc(fake_repo, payload={
+            "tone_label": "平和", "addresses": ["老王"], "address_set": True,
+            "address_ok": True,
+            "coach_names": [], "coach_name_set": True,
+            "coach_name_ok": True, "warnings": []})
+        out = _hint(fake_repo).stdout
+        assert "明确选了不给你起名字" in out
+        assert "不要自己取一个" in out
+
+    def test_never_asked_is_not_the_same_as_declined(self, fake_repo):
+        _fake_hc(fake_repo, payload={
+            "tone_label": "平和", "addresses": ["老王"], "address_set": True,
+            "address_ok": True,
+            "coach_names": [], "coach_name_set": False,
+            "coach_name_ok": True, "warnings": []})
+        out = _hint(fake_repo).stdout
+        assert "还没问过" in out
+        assert "set-coach-name" in out, "得告诉他怎么起，否则这条提示是死路"
+
+    def test_an_older_interface_without_the_field_degrades_to_never_asked(self, fake_repo):
+        """`hc` 和 `scripts/coach` 可能不同步升级 —— 少了键不能让整段提示崩掉。"""
+        _fake_hc(fake_repo, payload={
+            "tone_label": "平和", "addresses": ["老王"], "address_set": True,
+            "address_ok": True, "warnings": []})
+        proc = _hint(fake_repo)
+        assert proc.returncode == 0, proc.stderr
+        assert "老王" in proc.stdout, "称呼那半边不该被拖下水"
+        assert "你的名字" in proc.stdout
+
+
 class TestNoScrapingOfHumanOutput:
     def test_the_script_does_not_sed_the_persona_listing(self):
         """结构性守卫：谁都不许再回去解析 `hc persona` 的展示文本。"""

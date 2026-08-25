@@ -300,6 +300,18 @@ def _section_movement_progress(model: dict) -> str:
     if not tracked and not fresh:
         return ""
 
+    # 计时类动作占用同样三列，但装的是秒：最长一组 / 总时长 / —。
+    # 用 .get 兜底，是因为旧的 facts.json 里没有这三个字段，
+    # 而报告要能重渲染历史 facts（那时会退回计次显示，不会炸）。
+    def _cells(m: dict) -> str:
+        if m.get("timed"):
+            return (f'<td class="num">{esc(m["best_time"]["text"])}</td>'
+                    f'<td class="num">{esc(m["time_total"]["text"])}</td>'
+                    f'<td class="num muted small">计时类</td>')
+        return (f'<td class="num">{esc(m["top_load"]["text"])}</td>'
+                f'<td class="num">{esc(m["reps"]["text"])}</td>'
+                f'<td class="num">{esc(m["e1rm"]["text"])}</td>')
+
     rows = "".join(
         f'<tr><td>{esc(m["name"])}'
         + (f'<br><span class="muted small">对照 {esc(m["matched_name"])}</span>'
@@ -307,9 +319,7 @@ def _section_movement_progress(model: dict) -> str:
         + f'</td><td class="muted small">{esc(m["pattern"])}</td>'
         f'<td class="muted small">{esc(m["last_date"] or "—")}'
         + (f'<br>{m["days_since"]} 天前' if m["days_since"] is not None else "")
-        + f'</td><td class="num">{esc(m["top_load"]["text"])}</td>'
-        f'<td class="num">{esc(m["reps"]["text"])}</td>'
-        f'<td class="num">{esc(m["e1rm"]["text"])}</td></tr>'
+        + f'</td>' + _cells(m) + '</tr>'
         for m in tracked)
 
     new_note = ""
@@ -429,12 +439,6 @@ def _section_comparison(model: dict) -> str:
             extra.append(f'本次新增：{esc("、".join(c["added"]))}')
         if c["dropped"]:
             extra.append(f'本次没做：{esc("、".join(c["dropped"]))}')
-        if c.get("excluded"):
-            # 静默排除等于伪造了一个「什么都没发生」的对比。这些动作的
-            # 组数和容量仍在上面的合计里，逐动作表里却没有，必须说明原因。
-            extra.append(f'⊘ 未参与对比（负荷口径存疑）：'
-                         f'{esc("、".join(c["excluded"]))}'
-                         f'　—— 组数和容量仍计入上方合计')
         extra_html = (f'<p class="muted small">{" ｜ ".join(extra)}</p>'
                       if extra else "")
 

@@ -20,6 +20,7 @@ from __future__ import annotations
 import difflib
 from dataclasses import dataclass, field
 
+from .. import loading
 from .metrics import MovementStats, SessionStats
 
 # 一次训练里某肌群至少练到这么多组，才算「练了这个部位」
@@ -81,6 +82,15 @@ class MovementDelta:
     volume: Delta
     e1rm: Delta
     avg_rpe: Delta
+    # 计时类动作（平板支撑等）：成绩在秒里，`reps` 恒为 0。
+    # 不带这两个字段的话，35s→42s 这种真实进步会被报成「总次数 0 → 0 次 =」，
+    # 也就是把一次 +20% 的进步报成「没变化」。
+    timed: bool = False
+    best_time: Delta = field(default_factory=lambda: Delta(None, None))
+    time_total: Delta = field(default_factory=lambda: Delta(None, None))
+    # 两次不在同一个馆，且这个动作的负荷依赖场地（配重片/绳索/史密斯/哈克）。
+    # 组数、次数、容量照常比 —— 那些是真的练了；只有 top_load 和 e1rm 作废。
+    site_incomparable: bool = False
 
 
 @dataclass
@@ -101,11 +111,19 @@ class GroupComparison:
     movements: list[MovementDelta] = field(default_factory=list)
     added: list[str] = field(default_factory=list)
     dropped: list[str] = field(default_factory=list)
-    # 口径存疑、被排除在配对之外的动作（calibration 的 ignore 规则）。
-    # 要展示出来 —— 静默排除等于伪造了一个「什么都没发生」的对比。
-    excluded: list[str] = field(default_factory=list)
     rpe_coverage: float = 0.0
     paired_count: int = 0
+    # 两次各自在哪个馆。None = 没标过场地 —— **不是「同一个馆」，是「不知道」**。
+    # 只有两边都标了且不同，才算换馆。不知道时行为和加这个字段之前完全一致。
+    gym_before: str | None = None
+    gym_after: str | None = None
+    # 因换馆而负荷不可比的动作（组数/容量照常计入）
+    site_incomparable: list[str] = field(default_factory=list)
+
+    @property
+    def gym_changed(self) -> bool:
+        return bool(self.gym_before and self.gym_after
+                    and self.gym_before != self.gym_after)
 
     @property
     def has_anchor(self) -> bool:
@@ -115,6 +133,15 @@ class GroupComparison:
     def loads_comparable(self) -> bool:
         """有共同动作时，负荷才有可比性。"""
         return self.paired_count > 0
+
+
+def _same_loading(a: str, b: str) -> bool:
+    """两个动作名的计量口径一不一样（一个器械 vs 每手一个、两侧 vs 单侧）。
+
+    口径不同的两个动作，负荷数字根本不是同一个量 —— 模糊匹配再像也不能配对。
+    """
+    x, y = loading.classify(a), loading.classify(b)
+    return (x.implements, x.sides) == (y.implements, y.sides)
 
 
 def _group_movements(stats: SessionStats, group: str) -> list[MovementStats]:
@@ -183,7 +210,15 @@ def _pair(current: list[MovementStats], anchor: list[MovementStats]
         if cur.name in remaining:
             paired.append((cur, remaining.pop(cur.name)))
             continue
-        match = difflib.get_close_matches(cur.name, list(remaining), n=1,
+        # 模糊匹配只在**同一个计量口径**里找。
+        #
+        # 「上斜杠铃卧推」和「上斜哑铃卧推」只差一个字，difflib 相似度 0.83，
+        # 稳稳越过 0.82 的门槛 —— 于是 2026-08-23 那次真的报出了
+        # 「顶组 14.0 → 35.0kg ↑ +150.0%」：拿一对 14kg 哑铃去比一根 35kg 杠铃。
+        # 一个动作名差一个字、负荷口径差一倍，这正是 implement-loading.json
+        # 存在的理由，所以让它来当这道门槛。
+        pool = [n for n in remaining if _same_loading(cur.name, n)]
+        match = difflib.get_close_matches(cur.name, pool, n=1,
                                           cutoff=FUZZY_THRESHOLD)
         if match:
             paired.append((cur, remaining.pop(match[0])))
@@ -218,43 +253,58 @@ def compare_group(current: SessionStats, history: list[SessionStats],
 
     anc_ms = _group_movements(anchor, group)
 
-    # 被标了「口径存疑」的动作不参与配对，但**照常计入组数和容量** ——
-    # 那些组是真的练了，可疑的只是负荷数字能不能跨两次比。
-    # 把它整条踢出去会凭空少掉几组训练量，那是另一种错。
+    paired, added, dropped = _pair(cur_ms, anc_ms)
+
+    # 换馆：**只降器械类，自由重量照常比。** 杠铃 64kg 在哪个馆都是 64kg；
+    # 哈克机 107kg 换台机器就不是同一个量（滑车自重 + 轨道角度各厂不同）。
     #
-    # ⚠️ 两边必须按**同一个名字集合**过滤，不能各按各的标记过滤。
-    # ignore 规则通常只写在其中一天（CLI 建议的就是 `--date <本次>`），
-    # 只过滤本次的话，锚点那次还留着这个动作，`_pair` 就会把它算成
-    # 「本次没做」—— 于是输出里同时出现「本次没做：面拉」和
-    # 「未参与对比：面拉」，还会生成一条「建议补回」，让用户去补一个
-    # 他当天明明做了的动作。2026-08-10 code review 抓出来的。
-    excluded = sorted({m.name for m in cur_ms + anc_ms if m.compare_excluded})
-    paired, added, dropped = _pair([m for m in cur_ms if m.name not in excluded],
-                                   [m for m in anc_ms if m.name not in excluded])
+    # 为什么不把整次对比作废：那会把「深蹲涨了 4kg」这种真进步一起埋掉，
+    # 而且表现为「什么都没说」—— 比报错更难发现。用户 2026-08-21 选的就是这一档。
+    #
+    # 判据要两边都标了场地才成立。`None` 是「不知道」，不是「同一个馆」——
+    # 混淆这两者会让没标注的历史突然全部变成「换馆」。
+    gym_changed = bool(current.gym and anchor.gym and current.gym != anchor.gym)
+    site_hit = sorted({c.name for c, a in paired
+                       if not (c.load_portable and a.load_portable)}) if gym_changed else []
 
     deltas = []
     for cur, anc in paired:
+        blind = cur.name in site_hit
         deltas.append(MovementDelta(
             name=cur.name, status="paired",
             sets=Delta(float(anc.sets_done), float(cur.sets_done)),
             reps=Delta(anc.reps_total, cur.reps_total),
-            top_load=Delta(anc.top_load_kg, cur.top_load_kg),
+            # 换馆 + 器械类：负荷两端都置空，不是「保留数字再加一句提醒」。
+            # 留着数字，读的人（和下一个模型）迟早会去比它。
+            top_load=Delta(None, None) if blind else Delta(anc.top_load_kg, cur.top_load_kg),
             volume=Delta(anc.volume_kg, cur.volume_kg),
-            e1rm=Delta(anc.best_e1rm, cur.best_e1rm),
+            e1rm=Delta(None, None) if blind else Delta(anc.best_e1rm, cur.best_e1rm),
             avg_rpe=Delta(anc.avg_rpe, cur.avg_rpe),
+            site_incomparable=blind,
+            # 两次里任意一次是计时类就按计时展示 —— 同一个动作不该
+            # 因为某一次没记秒数就退回「0 次 → 0 次」。
+            timed=cur.timed or anc.timed,
+            best_time=Delta(anc.best_time_s, cur.best_time_s),
+            time_total=Delta(anc.time_s_total, cur.time_s_total),
         ))
     for m in added:
         deltas.append(MovementDelta(
             name=m.name, status="added",
             sets=Delta(None, float(m.sets_done)), reps=Delta(None, m.reps_total),
             top_load=Delta(None, m.top_load_kg), volume=Delta(None, m.volume_kg),
-            e1rm=Delta(None, m.best_e1rm), avg_rpe=Delta(None, m.avg_rpe)))
+            e1rm=Delta(None, m.best_e1rm), avg_rpe=Delta(None, m.avg_rpe),
+            timed=m.timed,
+            best_time=Delta(None, m.best_time_s),
+            time_total=Delta(None, m.time_s_total)))
     for m in dropped:
         deltas.append(MovementDelta(
             name=m.name, status="dropped",
             sets=Delta(float(m.sets_done), None), reps=Delta(m.reps_total, None),
             top_load=Delta(m.top_load_kg, None), volume=Delta(m.volume_kg, None),
-            e1rm=Delta(m.best_e1rm, None), avg_rpe=Delta(m.avg_rpe, None)))
+            e1rm=Delta(m.best_e1rm, None), avg_rpe=Delta(m.avg_rpe, None),
+            timed=m.timed,
+            best_time=Delta(m.best_time_s, None),
+            time_total=Delta(m.time_s_total, None)))
 
     days = None
     try:
@@ -265,9 +315,13 @@ def compare_group(current: SessionStats, history: list[SessionStats],
 
     # 负荷类指标只在共同动作之间比。没有共同动作时留空，
     # 由 findings 层给出「动作换了，负荷不可比」的说明，而不是硬比出一个假结论。
-    if paired:
-        cur_paired = [c for c, _ in paired]
-        anc_paired = [a for _, a in paired]
+    # 汇总的顶组和最强 1RM 同样要把换馆的器械动作排除掉，否则「腿」这一层
+    # 的顶组还是会拿哈克机的 107kg 去比 —— 逐动作那层挡住了，汇总层漏过去，
+    # 就是另一个静默失效。
+    comparable = [(c, a) for c, a in paired if c.name not in site_hit]
+    if comparable:
+        cur_paired = [c for c, _ in comparable]
+        anc_paired = [a for _, a in comparable]
         top_load = Delta(_max(m.top_load_kg for m in anc_paired),
                          _max(m.top_load_kg for m in cur_paired))
         best_e1rm = Delta(_max(m.best_e1rm for m in anc_paired),
@@ -286,9 +340,11 @@ def compare_group(current: SessionStats, history: list[SessionStats],
         movements=deltas,
         added=[m.name for m in added],
         dropped=[m.name for m in dropped],
-        excluded=excluded,
         rpe_coverage=coverage,
-        paired_count=len(paired),
+        paired_count=len(comparable),
+        gym_before=anchor.gym,
+        gym_after=current.gym,
+        site_incomparable=site_hit,
     )
 
 

@@ -11,7 +11,7 @@ import datetime as dt
 import sys
 
 from . import store
-from .config import load_env
+from .config import DATA_DIR, load_env
 
 
 def _parse_since(value: str, today: dt.date) -> dt.date:
@@ -116,8 +116,11 @@ def cmd_import_health(args) -> int:
         return 1
 
     print(f"导入 {path}")
+    # AH.parse 拿 since 和 ISO 日期串比大小。不翻译就会拿 "30d" 去比，
+    # 数字排在字母前，整份文件被静默滤空 —— 报的是「没解析出可用数据」。
+    since = _parse_since(args.since, dt.date.today()).isoformat() if args.since else None
     try:
-        data = AH.parse(path, since=args.since)
+        data = AH.parse(path, since=since)
     except (FileNotFoundError, OSError) as e:
         print(f"  读取失败：{e}")
         return 1
@@ -157,8 +160,12 @@ def cmd_cardio(args) -> int:
     for name, lo, hi, use in C.zone_table():
         print(f"  {name:<10} {lo:>3}–{hi:>3} bpm   {use}")
 
-    raw = store.load_sessions(start=args.since)
-    bouts = C.extract_bouts([], raw, start=args.since)
+    # 下游两处都是拿 ISO 日期串做字符串比较，必须先把 30d/12w 翻译掉。
+    # 原样传 "7d" 不会报错，只会把全部记录滤掉、然后报「本地没有有氧记录」。
+    today = dt.date.today()
+    start = _parse_since(args.since, today).isoformat() if args.since else None
+    raw = store.load_sessions(start=start)
+    bouts = C.extract_bouts([], raw, start=start)
     if not bouts:
         print("\n本地没有有氧记录。")
         print("训记会把苹果健康的运动同步过来（骑行、跑步、爬楼梯等），"
@@ -174,8 +181,7 @@ def cmd_cardio(args) -> int:
         if b.kcal:     line += f"  {b.kcal:.0f} kcal"
         print(line)
 
-    import datetime as _dt
-    week = C.summarize(bouts, _dt.date.today().isoformat(), window_days=args.window)
+    week = C.summarize(bouts, today.isoformat(), window_days=args.window)
     print(f"\n{'过去 ' + str(args.window) + ' 天汇总':─<54}")
     print(f"  {week.bouts} 次，共 {week.total_minutes:.0f} 分钟"
           + (f"，{week.total_kcal:.0f} kcal" if week.total_kcal else ""))
@@ -191,6 +197,26 @@ def cmd_cardio(args) -> int:
             if f["fix"]:
                 print(f"      {f['fix']}")
     return 0
+
+
+def _movement_metrics(d) -> str:
+    """一个动作的对比指标行。`d` 是 MovementDelta 或 MovementProgress ——
+    两者的字段名刻意保持一致，所以这里一份代码服务两处。
+
+    计时类动作走**另一套指标**：秒数，不是次数和 1RM。
+    合成一个 helper 而不是在两处各写一个 if，是因为这个缺陷最初就是
+    「对比侧和处方侧各自独立地把秒数当成 0 次」造成的 —— 分散的判断会再次跑偏。
+    """
+    if getattr(d, "timed", False):
+        return (f"最长一组 {d.best_time.fmt('s', 0)}   "
+                f"总时长 {d.time_total.fmt('s', 0)}   （计时类动作，看秒不看次）")
+    if getattr(d, "site_incomparable", False):
+        # 换馆的器械动作：次数和容量照常报（那些组是真的练了），
+        # 负荷两端已在 compare 层置空，这里明说为什么，不留一个光秃秃的「—」。
+        return (f"总次数 {d.reps.fmt('次', 0)}   容量 {d.volume.fmt('kg', 0)}"
+                f"   ⚠️ 换馆，负荷与估算1RM 不可比")
+    return (f"顶组 {d.top_load.fmt('kg')}   总次数 {d.reps.fmt('次', 0)}"
+            f"   估算1RM {d.e1rm.fmt('kg')}")
 
 
 def cmd_status(args) -> int:
@@ -292,7 +318,8 @@ def cmd_summary(args) -> int:
         print(f"\n{'═' * 62}")
         print(f"{st.date}  {st.label}"
               + (f"  {st.duration_min:.0f} 分钟" if st.duration_min else "")
-              + (f"  {st.kcal:.0f} kcal" if st.kcal else ""))
+              + (f"  {st.kcal:.0f} kcal" if st.kcal else "")
+              + (f"  @{st.gym}" if st.gym else ""))
         print("═" * 62)
         print(f"{'动作':<22}{'部位':<6}{'组':>4}{'总次':>6}{'顶组':>9}{'容量':>10}"
               f"{'估算1RM':>10}{'难度':>6}")
@@ -360,12 +387,19 @@ def cmd_compare(args) -> int:
         print(f"  依据：{c.anchor_reason}")
         if not c.has_anchor:
             continue
+        if c.gym_changed:
+            print(f"  ⚠️  换馆：{c.gym_before} → {c.gym_after}"
+                  f"　自由重量照常比，器械/绳索的负荷不可比")
+        elif c.gym_after and c.gym_before == c.gym_after:
+            print(f"  场地：{c.gym_after}（两次同馆）")
         print()
         print(f"  有效组数   {c.sets.fmt('组', 0)}")
         print(f"  总容量     {c.volume.fmt('kg', 0)}")
         if c.loads_comparable:
             print(f"  顶组负荷   {c.top_load.fmt('kg')}   （仅比共同动作）")
             print(f"  最强估算1RM {c.best_e1rm.fmt('kg')}   （仅比共同动作）")
+        elif c.gym_changed and c.site_incomparable:
+            print(f"  顶组负荷   —  共同动作全是器械类，而这两次不在同一个馆")
         else:
             print("  顶组负荷   —  两次没有共同动作，负荷不可比")
         paired = [m for m in c.movements if m.status == "paired"]
@@ -373,15 +407,14 @@ def cmd_compare(args) -> int:
             print(f"\n  逐动作（{len(paired)} 个动作两次都做了）")
             for md in paired:
                 print(f"    {md.name}")
-                print(f"        顶组 {md.top_load.fmt('kg')}   "
-                      f"总次数 {md.reps.fmt('次', 0)}   估算1RM {md.e1rm.fmt('kg')}")
+                print(f"        {_movement_metrics(md)}")
         if c.added:
             print(f"\n  本次新增：{'、'.join(c.added)}")
         if c.dropped:
             print(f"  本次没做：{'、'.join(c.dropped)}")
-        if c.excluded:
-            print(f"  ⊘ 未参与对比（口径存疑）：{'、'.join(c.excluded)}"
-                  f" —— 组数和容量仍照常计入")
+        if c.site_incomparable:
+            print(f"  ⊘ 换馆，负荷不比（{c.gym_before} → {c.gym_after}）："
+                  f"{'、'.join(c.site_incomparable)} —— 组数和容量仍照常计入")
 
     # 三个新视角
     mprog = movement_progress(target, history)
@@ -405,9 +438,15 @@ def cmd_compare(args) -> int:
             src = f"{mp.last_date}"
             if mp.confidence == "variant":
                 src += f" 的「{mp.matched_name}」"
-            print(f"  {mp.name}  [{mp.pattern}]  vs {src}（{tag}，{mp.days_since} 天前）")
-            print(f"      顶组 {mp.top_load.fmt('kg')}   总次数 {mp.reps.fmt('次', 0)}"
-                  f"   估算1RM {mp.e1rm.fmt('kg')}")
+            if mp.skipped_date:
+                gym = (f"，同馆 {mp.gym_after}；更近的 {mp.skipped_date} "
+                       f"在 {mp.skipped_gym}，跨馆比不了才往前翻")
+            elif mp.site_incomparable:
+                gym = f"，{mp.gym_before}→{mp.gym_after}"
+            else:
+                gym = ""
+            print(f"  {mp.name}  [{mp.pattern}]  vs {src}（{tag}，{mp.days_since} 天前{gym}）")
+            print(f"      {_movement_metrics(mp)}")
 
     if pcmps:
         print(f"\n{'═' * 62}")
@@ -417,8 +456,10 @@ def cmd_compare(args) -> int:
             if not pc.has_anchor:
                 print(f"  {pc.group}·{pc.pattern}  ← 最近没有可比的同模式训练")
                 continue
+            gym = (f"，⚠️ 换馆 {pc.gym_before}→{pc.gym_after}"
+                   if pc.site_incomparable else "")
             print(f"  {pc.group}·{pc.pattern}  vs {pc.last_date}（{pc.days_since} 天前，"
-                  f"{CONFIDENCE_LABEL[pc.load_confidence]}）")
+                  f"{CONFIDENCE_LABEL[pc.load_confidence]}{gym}）")
             print(f"      组数 {pc.sets.fmt('组', 0)}   容量 {pc.volume.fmt('kg', 0)}")
             if pc.movements_then and set(pc.movements_then) != set(pc.movements_now):
                 print(f"      上次：{'、'.join(pc.movements_then)}")
@@ -479,23 +520,129 @@ def _warn_load_jumps(stats, *, only_date: str | None = None) -> int:
     if len(jumps) > SHOW:
         print(f"  …… 还有 {len(jumps) - SHOW} 处没列出来（`hc calib check` 看全部）")
 
-    print("\n怎么处置 —— 四选一，每条各自决定")
+    print("\n怎么处置 —— 三选一，每条各自决定")
     print("  1 改原始记录数据（数据源也改）")
-    print("  2 只改项目内的数（原始文件不动，读取时折算）")
-    print("  3 忽略这次该动作的对比（组数容量照常计入）")
-    print("  4 确认是真实数据（留痕，不再预警）")
-    print("\n  照抄就能跑：")
+    print("  2 这台机器就是和别台不一样 —— 写一条挂在「馆 + 动作」上的折算规则")
+    print("  3 确认是真实数据（留痕，不再预警）")
+    print("\n  照抄就能跑（<馆> 换成那天在哪练的，hc gym 能查）：")
     for i, j in enumerate(jumps[:SHOW], 1):
         print(f"    # {i}. {j.movement}")
-        print(f"    1: hc sync train --date {j.date} --force"
+        print(f"    1: hc sync train --since {j.date} --until {j.date} --force"
               f"      （先去训记改那天的记录）")
-        print(f"    2: hc calib set '{j.movement}' --date {j.prev_date} "
-              f"--ratio 0.5   （旧机位若是 2:1 就是 0.5）")
-        print(f"    3: hc calib set '{j.movement}' --date {j.date} --ignore")
-        print(f"    4: hc calib set '{j.movement}' --date {j.date} --confirm")
+        print(f"    2: hc calib set '{j.movement}' --gym <馆> --ratio 0.5"
+              f"     （传动比 2:1 就是 0.5）")
+        print(f"       hc calib set '{j.movement}' --gym <馆> --offset 53"
+              f"      （滑车自重这类加法常数，助力填负数）")
+        print(f"    3: hc calib set '{j.movement}' --date {j.date} --confirm")
     print("\n  折算成哪个口径由你定：把**现在这台**当基准就折算旧的，"
           "反过来也行 —— 只要全序列统一。")
     return len(jumps)
+
+
+def cmd_gym(args) -> int:
+    """训练场地。**换馆 = 换尺** —— 见 gyms.py 顶部。"""
+    from . import gyms
+    from pathlib import Path
+
+    sessions = store.load_sessions()
+    action = args.gym_action
+
+    if action == "set":
+        if not args.date or not args.gym:
+            print("用法：hc gym set <日期> <馆名>　（馆名填「空」= 撤销这天的标注）")
+            return 1
+        gym = "" if args.gym in ("空", "清空", "-") else args.gym
+        try:
+            e = gyms.set_gym(args.date, gym, note=args.note or "")
+        except ValueError as exc:
+            print(f"✗ {exc}")
+            return 1
+        print(f"✅ {e.date} → {e.gym or '（已撤销标注）'}")
+        return 0
+
+    if action == "export":
+        rows = gyms.export_rows(sessions, only_missing=args.only_missing)
+        text = gyms.to_tsv(rows)
+        if args.out and args.out != "-":
+            dest = Path(args.out)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(text, encoding="utf-8")
+            filled = sum(1 for r in rows if r[-1])
+            print(f"✅ 写了 {len(rows)} 行到 {dest}（其中 {filled} 行已有场地）")
+            # 这张表里是真实的训练日期和动作名 —— 那是训练记录，不是示例数据。
+            # data/ 整个被 gitignore，别的地方不是。
+            if DATA_DIR not in dest.resolve().parents:
+                print(f"   ⚠️ {dest} 不在 data/ 下面，**没有被 gitignore**。"
+                      f"表里是真实训练日期和动作名，别提交上去。")
+            print("   用表格软件打开，只填最后一列 gym，填完：")
+            print(f"     hc gym import {args.out}")
+            print("   没练的日子不在表里；不确定的行**留空**，别猜 —— 空的照旧不影响对比。")
+        else:
+            print(text, end="")
+        return 0
+
+    if action == "import":
+        src = Path(args.file)
+        if not src.exists():
+            print(f"✗ 找不到 {src}")
+            return 1
+        try:
+            pairs = gyms.parse_table(src.read_text(encoding="utf-8"))
+        except gyms.ImportError_ as exc:
+            print(f"✗ {exc}")
+            return 1
+        known = {s.get("date") for s in sessions}
+        unknown = sorted({d for d, _, _ in pairs if d not in known})
+        pairs = [(d, g, n) for d, g, n in pairs if d in known]
+        n = gyms.set_many(pairs)
+        print(f"✅ 导入 {len(pairs)} 行，实际写入 {n} 条（和现有值相同的跳过了）")
+        if unknown:
+            print(f"   ⚠️ 有 {len(unknown)} 个日期本地没有训练记录，已跳过："
+                  f"{'、'.join(unknown[:5])}{'…' if len(unknown) > 5 else ''}")
+        return 0
+
+    # 默认：覆盖率概览
+    entries = gyms.load_entries()
+    dates = {s.get("date") for s in sessions if s.get("date")}
+    tagged = {e.date for e in entries} & dates
+    print(f"\n训练场地（{gyms.PATH}）")
+    print("=" * 62)
+    if not dates:
+        print("  本地还没有训练记录。")
+        return 0
+    pct = len(tagged) / len(dates) * 100
+    print(f"  已标注 {len(tagged)}/{len(dates)} 天（{pct:.0f}%）")
+    if not entries:
+        print("  还没标过任何一天。没标注时对比行为和以前完全一样 —— 不猜，不降级。")
+        print("  补录一整年：hc gym export --out gyms.tsv　→ 填最后一列 →"
+              " hc gym import gyms.tsv")
+        return 0
+
+    counts: dict[str, int] = {}
+    for e in entries:
+        if e.date in dates:
+            counts[e.gym] = counts.get(e.gym, 0) + 1
+    print("\n  各馆次数")
+    for name in sorted(counts, key=lambda n: (-counts[n], n)):
+        print(f"    {name}　{counts[name]} 次")
+
+    missing = sorted(dates - tagged)
+    if missing:
+        show = "、".join(missing[:6]) + ("…" if len(missing) > 6 else "")
+        print(f"\n  还没标的 {len(missing)} 天：{show}")
+        print("    hc gym export --out gyms.tsv --only-missing")
+
+    names = {m.get("name") for s in sessions for m in (s.get("movements") or [])
+             if m.get("name")}
+    unknown = gyms.unclassified(names)
+    if unknown:
+        print(f"\n  ⚠️ 有 {len(unknown)} 个动作认不出器械类型，换馆时会**保守当作不可比**：")
+        print(f"     {'、'.join(unknown[:12])}{'…' if len(unknown) > 12 else ''}")
+        print("     觉得哪个其实是自由重量，补进"
+              " knowledge/movements/site-dependence.json 就行，不用改代码。")
+    for w in gyms.warnings():
+        print(f"  ❌ {w}")
+    return 0
 
 
 def cmd_calib(args) -> int:
@@ -513,6 +660,16 @@ def cmd_calib(args) -> int:
             print(f"  {r.describe()}")
             if r.note:
                 print(f"      {r.note}")
+        retired = calibration.retired_rows()
+        if retired:
+            print(f"\n  ⚠️ 另有 {len(retired)} 条**已失效**的旧规则"
+                  f"（action 是 {'/'.join(calibration.RETIRED_ACTIONS)}，"
+                  f"2026-08-25 退役）：")
+            for r in retired:
+                print(f"    [{r.get('id')}] {r.get('movement')}　{r.get('action')}"
+                      f"　—— 现在不生效")
+            print("    文件只追加，所以它们留在那儿；要真正推翻就新写一条"
+                  " --supersedes <旧ID>。")
         print("\n规则文件只追加不修改。改主意就新写一条 --supersedes <旧ID>。")
         return 0
 
@@ -521,28 +678,28 @@ def cmd_calib(args) -> int:
             print("要指定动作名：hc calib set '<动作>' --date <日期> --ratio 0.5")
             print("看有哪些待处理：hc calib check")
             return 1
-        chosen = [k for k in ("ratio", "ignore", "confirm")
+        chosen = [k for k in ("ratio", "offset_kg", "confirm")
                   if getattr(args, k, None)]
         if len(chosen) != 1:
-            print("要且只要一个处置：--ratio <系数> / --ignore / --confirm")
+            print("要且只要一个处置："
+                  "--ratio <系数> / --offset <kg> / --confirm")
             return 1
-        action = "scale" if args.ratio else ("ignore" if args.ignore else "confirm")
-        if args.date and (args.date_from or args.date_to):
-            print("--date 和 --from/--to 不能一起用。--date 是单日的简写。")
-            return 1
-        lo = args.date or args.date_from
-        hi = args.date or args.date_to
+        action = ("scale" if args.ratio else
+                  "offset" if args.offset_kg else "confirm")
         try:
             rule = calibration.add_rule(
-                args.movement, action, ratio=args.ratio, date_from=lo, date_to=hi,
+                args.movement, action, ratio=args.ratio,
+                gym=args.gym, offset_kg=args.offset_kg, date=args.date,
                 note=args.note or "", supersedes=args.supersedes)
         except ValueError as e:
             print(f"❌ {e}")
             return 1
         print(f"✅ 已记 {rule.describe()}")
-        if action == "scale":
+        if action in calibration.TRANSFORMS:
             print("   原始文件一个字没动 —— 折算是在读取时做的，"
                   "`hc rebuild` 也不会把它冲掉。")
+            print(f"   作用域是「{rule.gym} + {rule.movement}」，没有日期 ——"
+                  f"**那个馆此前的记录也会一起折算**。")
         print("   核对：hc calib list　效果：hc compare")
         return 0
 
@@ -615,7 +772,9 @@ def cmd_next(args) -> int:
     for note in rx.notes:
         print(f"\n  {note}")
 
-    print(f"\n{'动作':<24}{'组':>4}{'重量':>10}{'目标次数':>10}  {'调整'}")
+    # 列名是「目标」不是「目标次数」：计时类动作这一格装的是秒数区间。
+    # 写死「次数」的话，平板支撑那行会变成「目标次数 30-60s」。
+    print(f"\n{'动作':<24}{'组':>4}{'重量':>10}{'目标':>10}  {'调整'}")
     print("─" * 62)
     for p in rx.movements:
         load = f"{p.load_kg:.1f}kg" if p.load_kg is not None else "—"
@@ -854,6 +1013,25 @@ def cmd_persona(args) -> int:
             return 1
         print(f"✅ 教练语气 → {persona.label(slug)}（knowledge/coach/personas/{slug}.md）")
         print("   下次对话生效。核心人格不变 —— 换的只是措辞，不是规则。")
+        return 0
+    if getattr(args, "set_coach_name", None) is not None:
+        import re as _re
+        raw = args.set_coach_name.strip()
+        # 「清空」这几个词和 hc setup 里 _ask_list 的清空语义保持一致 ——
+        # 两个入口对同一个操作用两套词，用户迟早在其中一个上踩空。
+        names: list[str] = ([] if raw in ("-", "清空", "无", "none", "NONE")
+                            else [w for w in _re.split(r"[、，,；;/\\|_\s]+", raw) if w])
+        try:
+            saved = persona.set_coach_names(names)
+        except ValueError as e:
+            print(f"❌ {e}")
+            return 1
+        if saved:
+            print(f"✅ 教练的名字 → {'、'.join(saved)}"
+                  + ("　（第一个是自称用的）" if len(saved) > 1 else ""))
+            print("   下次对话生效。以这些名字开头的话，教练会知道是在叫它。")
+        else:
+            print("✅ 已记下：不给教练起名字，就叫「教练」。")
         return 0
     if getattr(args, "json", False):
         # 给 scripts/coach 这类调用方用的稳定接口。人类可读的那份措辞随时会调，
@@ -1152,12 +1330,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     ih = sub.add_parser("import-health", help="导入苹果健康导出文件（导出.zip）")
     ih.add_argument("path", help="导出.zip 或解压后的 导出.xml / 目录")
-    ih.add_argument("--since", help="只导入这个日期之后的，比如 2026-01-01")
+    ih.add_argument("--since", help="只导入这个日期之后的，支持 2026-07-01 或 30d/12w/6m/1y")
     ih.add_argument("--dry-run", action="store_true", help="只解析看结果，不写入")
     ih.set_defaults(func=cmd_import_health)
 
     cd = sub.add_parser("cardio", help="有氧与心率区间分析")
-    cd.add_argument("--since", default="2026-06-01", help="起始日期")
+    cd.add_argument("--since", default="2026-06-01",
+                    help="起始日期，支持 2026-07-01 或 30d/12w/6m/1y")
     cd.add_argument("--window", type=int, default=7, help="汇总窗口天数，默认 7")
     cd.set_defaults(func=cmd_cardio)
 
@@ -1177,7 +1356,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.set_defaults(func=cmd_rebuild)
 
     ls = sub.add_parser("sessions", help="列出本地训练记录")
-    ls.add_argument("--since", help="起始日期，支持 2026-07-01 或 30d")
+    ls.add_argument("--since", help="起始日期，支持 2026-07-01 或 30d/12w/6m/1y")
     ls.set_defaults(func=cmd_sessions)
 
     sm = sub.add_parser("summary", help="单次训练的详细指标")
@@ -1193,16 +1372,39 @@ def build_parser() -> argparse.ArgumentParser:
     cb.add_argument("action", nargs="?", default="check", choices=("check", "set", "list"),
                     help="check=看有哪些可疑跳变（默认）  set=写规则  list=看现有规则")
     cb.add_argument("movement", nargs="?", help="动作名（set 时必填）")
-    cb.add_argument("--date", help="只对这一天生效")
-    cb.add_argument("--from", dest="date_from", help="起始日期（含）")
-    cb.add_argument("--to", dest="date_to", help="结束日期（含）")
+    cb.add_argument("--gym", help="哪个馆的这台机器（--ratio / --offset 必填）")
     cb.add_argument("--ratio", type=float,
-                    help="折算系数。旧机位是 2:1 就填 0.5。原始文件不动")
-    cb.add_argument("--ignore", action="store_true", help="该动作该次不参与对比")
+                    help="折算系数（乘法）。传动比 2:1 就填 0.5。原始文件不动")
+    cb.add_argument("--offset", "--start", type=float, dest="offset_kg",
+                    help="加法常数 kg，**可以是负的**：哈克/腿举的滑车自重填正数，"
+                         "引体挂配重 +10、套助力带 -15")
+    cb.add_argument("--date", help="哪一天那一次（--confirm 必填）")
     cb.add_argument("--confirm", action="store_true", help="确认是真实变化，不再预警")
     cb.add_argument("--note", help="为什么这么定，写给半年后的自己")
-    cb.add_argument("--supersedes", help="推翻哪条旧规则（只追加，不改旧的）")
+    cb.add_argument("--supersedes",
+                    help="推翻哪几条旧规则，逗号分隔（只追加，不改旧的）")
     cb.set_defaults(func=cmd_calib)
+
+    gy = sub.add_parser("gym", help="训练场地：换馆等于换尺，标了才能正确对比")
+    gy.set_defaults(func=cmd_gym, gym_action=None)
+    gysub = gy.add_subparsers(dest="_gym")
+
+    gys = gysub.add_parser("set", help="标一天的场地")
+    gys.add_argument("date", help="YYYY-MM-DD")
+    gys.add_argument("gym", help="馆名。填「空」= 撤销这天的标注")
+    gys.add_argument("--note", help="备注")
+    gys.set_defaults(func=cmd_gym, gym_action="set")
+
+    gye = gysub.add_parser("export", help="导出待填的表格（TSV）")
+    gye.add_argument("--out", default="-",
+                     help="写到哪个文件，默认打到屏幕。建议放 data/ 下面 —— "
+                          "表里是真实训练日期，只有 data/ 是 gitignore 的")
+    gye.add_argument("--only-missing", action="store_true", help="只导出还没标的天")
+    gye.set_defaults(func=cmd_gym, gym_action="export")
+
+    gyi = gysub.add_parser("import", help="把填好的表格导回来")
+    gyi.add_argument("file", help="TSV 或 CSV 文件")
+    gyi.set_defaults(func=cmd_gym, gym_action="import")
 
     nx = sub.add_parser("next", help="下次同部位训练的具体建议")
     nx.add_argument("group", help="部位，比如 胸 / 背 / 腿")
@@ -1240,6 +1442,9 @@ def build_parser() -> argparse.ArgumentParser:
     pa.add_argument("--set", metavar="语气",
                     help="切换语气，中文名或 slug 都行："
                          + " / ".join(f"{n}({s})" for s, (n, _) in _pa.TONES.items()))
+    pa.add_argument("--set-coach-name", metavar="名字",
+                    help="你怎么叫教练。多个用逗号/空格隔开，第一个是它自称用的；"
+                         "填「清空」= 不起名字。教练也靠这个认出自己被叫到了")
     pa.add_argument("--show", action="store_true",
                     help="打印拼装后的完整人格（核心 + 当前语气）")
     pa.add_argument("--json", action="store_true",
@@ -1258,7 +1463,7 @@ def build_parser() -> argparse.ArgumentParser:
     jr.add_argument("--brief", action="store_true",
                     help="紧凑版，给 --append-system-prompt 注入用")
     jr.add_argument("--grep", metavar="关键词", help="全量检索（聊到旧话题时用）")
-    jr.add_argument("--since", help="某日期至今，支持 2026-07-01 或 30d/12w")
+    jr.add_argument("--since", help="某日期至今，支持 2026-07-01 或 30d/12w/6m/1y")
     jr.set_defaults(func=cmd_journal, journal_action=None)
 
     jsub = jr.add_subparsers(dest="journal_action")
@@ -1336,7 +1541,8 @@ def build_parser() -> argparse.ArgumentParser:
     da.set_defaults(func=cmd_dice, dice_action="add")
 
     dg = dsub.add_parser("log", help="最近摇过什么 + 本月破戒额度")
-    dg.add_argument("--since", help="默认最近 14 天")
+    dg.add_argument("--since",
+                    help="起始日期，支持 2026-07-01 或 30d/12w/6m/1y（默认最近 14 天）")
     dg.set_defaults(func=cmd_dice, dice_action="log")
 
     tg = sub.add_parser("targets", help="每日目标摄入量（热量 / 蛋白 / 脂肪 / 碳水）",

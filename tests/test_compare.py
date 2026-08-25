@@ -167,3 +167,45 @@ class TestRpeSuppression:
         assert cur.rpe_coverage == 0.0
         assert "MISSING_RPE" in {f.code for f in findings}
         assert not any(f.code in ("JUNK_VOLUME", "GRINDER") for f in findings)
+
+
+class TestFuzzyMatchRespectsLoadingConvention:
+    """模糊匹配不能跨计量口径配对。
+
+    2026-08-23 真的发生过：「上斜杠铃卧推」和「上斜哑铃卧推」只差一个字，
+    difflib 相似度 0.83 越过了 0.82 的门槛，于是 `hc compare` 报出
+    「顶组 14.0 → 35.0kg ↑ +150.0%」—— 拿一对 14kg 哑铃比一根 35kg 杠铃。
+    """
+
+    @staticmethod
+    def _sess(date: str, name: str, weight: float) -> dict:
+        return {
+            "id": date, "date": date, "source": "x", "title": "", "duration_s": 3000,
+            "movements": [{
+                "name": name, "raw_type": "胸", "exetype": None,
+                "unilateral": False, "difficulty": None,
+                "sets": [{"done": True, "weight_kg": weight, "reps": 10, "rpe": None,
+                          "self_weight": False, "left_weight_kg": None} for _ in range(3)],
+            }],
+        }
+
+    def test_dumbbell_and_barbell_never_pair(self):
+        from health_assistant.analytics.compare import compare_group
+        from health_assistant.analytics.metrics import session_stats
+        prev = session_stats(self._sess("2026-08-18", "上斜哑铃卧推", 14), 80.0)
+        cur = session_stats(self._sess("2026-08-23", "上斜杠铃卧推", 35), 80.0)
+
+        c = compare_group(cur, [prev], "胸")
+        assert [m.name for m in c.movements if m.status == "paired"] == []
+        assert c.added == ["上斜杠铃卧推"]
+        assert c.dropped == ["上斜哑铃卧推"]
+
+    def test_same_convention_still_pairs_fuzzily(self):
+        """门槛只挡口径不同的，同口径的近似名字照配 —— 别把功能一起关掉。"""
+        from health_assistant.analytics.compare import compare_group
+        from health_assistant.analytics.metrics import session_stats
+        prev = session_stats(self._sess("2026-08-18", "器械推胸（版本2）", 40), 80.0)
+        cur = session_stats(self._sess("2026-08-23", "器械推胸（版本3）", 45), 80.0)
+
+        c = compare_group(cur, [prev], "胸")
+        assert [m.name for m in c.movements if m.status == "paired"] == ["器械推胸（版本3）"]

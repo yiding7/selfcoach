@@ -83,6 +83,21 @@ def rep_range(name: str) -> tuple[int, int]:
     return int(lo), int(hi)
 
 
+def time_range(name: str) -> tuple[int, int]:
+    """计时类动作的单组目标时长（秒）。
+
+    刻意**不**复用 `rep_range` —— 这类动作的 `reps` 恒为 null，
+    走计次那条路会算出 avg_reps=0，然后永远建议「先把次数做上去」。
+    """
+    ranges = _config().get("time_ranges", {})
+    lo, hi = ranges.get("static", ranges.get("default", [30, 60]))
+    return int(lo), int(hi)
+
+
+def time_increment_s() -> int:
+    return int(_config().get("time_ranges", {}).get("increment_s", 5))
+
+
 def volume_status(group: str, weekly_sets: float) -> tuple[str, dict | None]:
     lm = landmarks(group)
     if not lm:
@@ -107,6 +122,9 @@ class MovementPrescription:
     rep_target: str
     change: str
     why: str
+    # 计时类动作：`rep_target` 装的是秒数区间（"30-60s"），不是次数。
+    # 渲染层要靠这个标志换列名，不然表头「目标次数」会盖在一个秒数上。
+    timed: bool = False
     # 「建议补回」的动作是**提示**，不是处方的一部分。它的组数不计进 total_sets ——
     # 见 prescribe_group 末尾那段注释，这是 2026-08-10 修掉的棘轮。
     optional: bool = False
@@ -216,6 +234,58 @@ def prescribe_group(group: str, current: SessionStats,
         # 「顶组用双侧合计、1RM 用单侧」这个矛盾打补丁。矛盾在
         # metrics.per_side_load_kg 里修掉了，补丁必须同时撤掉，否则会除两次。
         load = m.top_load_kg
+
+        # 计时类动作（平板支撑、静态保持）必须在计次逻辑之前拦下来。
+        #
+        # 它的 `reps` 恒为 null，所以 avg_reps 恒为 0，落进下面 `avg_reps < lo`
+        # 那一支，输出「目标 10-20 次，先在这个重量上做到 10 次以上」——
+        # 对平板支撑既无意义，也永远不会翻篇。真实数据里这条建议出现过：
+        # 2026-08-06 三组 40/41/42 秒，被建议「先做到 10 次」。
+        if m.timed:
+            avg_time = ((m.time_s_total / m.sets_done)
+                        if m.time_s_total and m.sets_done else None)
+            tlo, thi = time_range(m.name)
+            tstep = time_increment_s()
+            if avg_time is None:
+                # 标成计时类却没有秒数 —— 不猜，也不退回计次逻辑。
+                rx.movements.append(MovementPrescription(
+                    name=m.name, sets=m.sets_done, load_kg=load,
+                    rep_target=f"{tlo}-{thi}s", change="按上次",
+                    why="这是计时类动作，但这次没记到每组的秒数，所以我给不出递进目标。"
+                        "在训记里记一下每组坚持的时间，下次就能给。",
+                    timed=True))
+                continue
+            if avg_time < thi:
+                rx.movements.append(MovementPrescription(
+                    name=m.name, sets=m.sets_done, load_kg=load,
+                    rep_target=f"{tlo}-{thi}s",
+                    change=f"每组 +{tstep} 秒",
+                    why=f"上次平均每组 {avg_time:.0f} 秒"
+                        + (f"（最长一组 {m.best_time_s:.0f} 秒）" if m.best_time_s else "")
+                        + f"，还没到 {thi} 秒。这次每组多撑 {tstep} 秒。"
+                          f"撑不住就停 —— 计时类动作靠的是姿态维持住，"
+                          f"塌腰硬撑出来的秒数不算数。",
+                    timed=True))
+            elif hold_load:
+                rx.movements.append(MovementPrescription(
+                    name=m.name, sets=m.sets_done, load_kg=load,
+                    rep_target=f"{tlo}-{thi}s",
+                    change="保持",
+                    why=f"上次平均每组 {avg_time:.0f} 秒，已经到 {thi} 秒了。"
+                        f"正常该加负重或换更难的变式，但你现在处在明显缺口期，"
+                        f"这次先稳住。",
+                    timed=True))
+            else:
+                rx.movements.append(MovementPrescription(
+                    name=m.name, sets=m.sets_done, load_kg=load,
+                    rep_target=f"{tlo}-{thi}s",
+                    change="加负重或换更难的变式",
+                    why=f"上次平均每组 {avg_time:.0f} 秒，已经到了 {thi} 秒的上限。"
+                        f"再往上加时间会滑向耐力，收益不如加难度 —— "
+                        f"背上压一片配重，或者换单臂/抬腿的变式，"
+                        f"时间掉回 {tlo} 秒左右是对的。",
+                    timed=True))
+            continue
 
         # 自重类动作不显示折算出来的公斤数 —— 那不是器械上能设置的数字，
         # 显示出来只会误导。辅助类动作更要小心：配重越大越轻松，
