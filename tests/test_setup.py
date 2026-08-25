@@ -397,19 +397,19 @@ class TestAddressPromptTellsTheTruth:
 
     def test_enter_never_deletes_an_existing_address(self, monkeypatch, capsys):
         """回车在整个向导里到处都表示「这项不改」，不能只在这一步变成删除。"""
-        assert self._ask(monkeypatch, ["Tim"], [""]) == ["Tim"]
+        assert self._ask(monkeypatch, ["老张"], [""]) == ["老张"]
         shown = capsys.readouterr().out
         assert "直接回车 = 不要称呼" not in shown, "提示和实际行为对不上"
         assert "保持现在这几个不变" in shown
 
     def test_dropping_the_address_is_reachable_and_advertised(self, monkeypatch, capsys):
         """「我不想被叫名字了」这个意图必须真的能表达出来，而且不用去猜。"""
-        assert self._ask(monkeypatch, ["Tim"], ["-"]) == []
+        assert self._ask(monkeypatch, ["老张"], ["-"]) == []
         assert "填单个 - 或「清空」" in capsys.readouterr().out
-        assert self._ask(monkeypatch, ["Tim"], ["清空"]) == []
+        assert self._ask(monkeypatch, ["老张"], ["清空"]) == []
 
     def test_typing_new_names_replaces_them(self, monkeypatch):
-        assert self._ask(monkeypatch, ["Tim"], ["老王 王先生"]) == ["老王", "王先生"]
+        assert self._ask(monkeypatch, ["老张"], ["老王 王先生"]) == ["老王", "王先生"]
 
 
 class TestBrokenAddressIsNotReportedAsConfirmed:

@@ -262,7 +262,7 @@ class TestRuleValidation:
 class TestGymScope:
     """作用域挂在**馆**上，不挂日期。
 
-    传动比是那台机器的物理属性 —— 艾克仕的龙门今天 2:1、明天还是 2:1。
+    传动比是那台机器的物理属性 —— 乙馆的龙门今天 2:1、明天还是 2:1。
     用日期区间去表达「在哪台机器上练的」，每换一次馆就要补一条规则，
     补漏一条就静默错一次。用户 2026-08-23 拍板改用这个作用域。
     """
@@ -277,32 +277,32 @@ class TestGymScope:
         return s
 
     def test_rule_applies_only_at_that_gym(self, rules_file):
-        calibration.add_rule("面拉", "scale", ratio=0.5, gym="艾克仕")
-        out = calibration.apply_rules([self._sess("2026-08-16", "艾克仕", 40),
-                                       self._sess("2026-08-10", "BA", 40)])
+        calibration.add_rule("面拉", "scale", ratio=0.5, gym="乙馆")
+        out = calibration.apply_rules([self._sess("2026-08-16", "乙馆", 40),
+                                       self._sess("2026-08-10", "甲馆", 40)])
         assert out[0]["movements"][0]["sets"][0]["weight_kg"] == 20
         assert out[1]["movements"][0]["sets"][0]["weight_kg"] == 40
 
     def test_unknown_gym_is_never_assumed_to_match(self, rules_file):
         """没标场地的历史记录，绝不能被一条后来才定义的按馆规则悄悄改掉。"""
-        calibration.add_rule("面拉", "scale", ratio=0.5, gym="艾克仕")
+        calibration.add_rule("面拉", "scale", ratio=0.5, gym="乙馆")
         out = calibration.apply_rules([self._sess("2026-06-01", None, 40)])
         assert out[0]["movements"][0]["sets"][0]["weight_kg"] == 40
         assert "_calib" not in out[0]["movements"][0]
 
     def test_scope_survives_a_round_trip_through_the_file(self, rules_file):
-        calibration.add_rule("面拉", "scale", ratio=0.5, gym="艾克仕")
+        calibration.add_rule("面拉", "scale", ratio=0.5, gym="乙馆")
         loaded = calibration.load_rules()[0]
-        assert loaded.gym == "艾克仕"
-        assert loaded.covers("面拉", "艾克仕") is True
-        assert loaded.covers("面拉", "BA") is False
+        assert loaded.gym == "乙馆"
+        assert loaded.covers("面拉", "乙馆") is True
+        assert loaded.covers("面拉", "甲馆") is False
         assert loaded.covers("面拉", None) is False
 
     def test_identity_ratio_is_still_a_real_rule(self, rules_file):
         """×1.0 不改数字，但它记录了「测过了，就是 1:1」——
         和「还没人测过」是两回事，不该被静默当成同一件事。"""
-        calibration.add_rule("面拉", "scale", ratio=1.0, gym="BA")
-        out = calibration.apply_rules([self._sess("2026-08-10", "BA", 40)])
+        calibration.add_rule("面拉", "scale", ratio=1.0, gym="甲馆")
+        out = calibration.apply_rules([self._sess("2026-08-10", "甲馆", 40)])
         m = out[0]["movements"][0]
         assert m["sets"][0]["weight_kg"] == 40
         assert m["_calib"]["ratio"] == 1.0
@@ -324,56 +324,56 @@ class TestOffset:
         return sess(date, weight, 10, name=name, group="腿", gym=gym)
 
     def test_adds_the_sled_weight(self, rules_file):
-        calibration.add_rule("腿举", "offset", offset_kg=53, gym="BA")
-        out = calibration.apply_rules([self._sess("2026-08-20", "BA", 100)])
+        calibration.add_rule("腿举", "offset", offset_kg=53, gym="甲馆")
+        out = calibration.apply_rules([self._sess("2026-08-20", "甲馆", 100)])
         assert out[0]["movements"][0]["sets"][0]["weight_kg"] == 153
 
     def test_is_additive_not_multiplicative(self, rules_file):
         """不同片重加同一个常数 —— 这是 ratio 做不到的那件事。"""
-        calibration.add_rule("腿举", "offset", offset_kg=53, gym="BA")
-        out = calibration.apply_rules([self._sess("2026-08-20", "BA", 100),
-                                       self._sess("2026-08-14", "BA", 60)])
+        calibration.add_rule("腿举", "offset", offset_kg=53, gym="甲馆")
+        out = calibration.apply_rules([self._sess("2026-08-20", "甲馆", 100),
+                                       self._sess("2026-08-14", "甲馆", 60)])
         assert out[0]["movements"][0]["sets"][0]["weight_kg"] == 153
         assert out[1]["movements"][0]["sets"][0]["weight_kg"] == 113
 
     def test_assistance_is_a_negative_offset(self, rules_file):
         """助力带引体：手上实际要出的力比体重少。"""
-        calibration.add_rule("引体向上", "offset", offset_kg=-15, gym="BA")
+        calibration.add_rule("引体向上", "offset", offset_kg=-15, gym="甲馆")
         out = calibration.apply_rules(
-            [self._sess("2026-08-20", "BA", 75, name="引体向上")])
+            [self._sess("2026-08-20", "甲馆", 75, name="引体向上")])
         assert out[0]["movements"][0]["sets"][0]["weight_kg"] == 60
 
     def test_zero_is_refused(self, rules_file):
         """0 不改任何数字，却会让人以为这个动作已经标定过了。"""
         for bad in (None, 0):
             with pytest.raises(ValueError):
-                calibration.add_rule("腿举", "offset", offset_kg=bad, gym="BA")
+                calibration.add_rule("腿举", "offset", offset_kg=bad, gym="甲馆")
 
     def test_reads_the_old_start_kg_field(self, rules_file):
         """`start_kg` 是 2026-08-25 之前的字段名，旧文件必须照常生效。"""
         rules_file.write_text(store.dumps({
             "id": "X", "movement": "腿举", "action": "offset",
-            "gym": "BA", "start_kg": 53}) + "\n", encoding="utf-8")
-        out = calibration.apply_rules([self._sess("2026-08-20", "BA", 100)])
+            "gym": "甲馆", "start_kg": 53}) + "\n", encoding="utf-8")
+        out = calibration.apply_rules([self._sess("2026-08-20", "甲馆", 100)])
         assert out[0]["movements"][0]["sets"][0]["weight_kg"] == 153
 
     def test_only_at_that_gym(self, rules_file):
-        calibration.add_rule("腿举", "offset", offset_kg=53, gym="BA")
+        calibration.add_rule("腿举", "offset", offset_kg=53, gym="甲馆")
         out = calibration.apply_rules([self._sess("2026-08-20", "乙馆", 100)])
         assert out[0]["movements"][0]["sets"][0]["weight_kg"] == 100
 
     def test_raw_file_still_untouched(self, rules_file):
-        calibration.add_rule("腿举", "offset", offset_kg=53, gym="BA")
-        raw = [self._sess("2026-08-20", "BA", 100)]
+        calibration.add_rule("腿举", "offset", offset_kg=53, gym="甲馆")
+        raw = [self._sess("2026-08-20", "甲馆", 100)]
         before = copy.deepcopy(raw)
         calibration.apply_rules(raw)
         assert raw == before
 
     def test_scaling_happens_before_adding(self, rules_file):
         """顺序定死：传动比作用在配重片读数上，自重是读数之外另加的一块。"""
-        calibration.add_rule("腿举", "scale", ratio=0.5, gym="BA")
-        calibration.add_rule("腿举", "offset", offset_kg=53, gym="BA")
-        out = calibration.apply_rules([self._sess("2026-08-20", "BA", 100)])
+        calibration.add_rule("腿举", "scale", ratio=0.5, gym="甲馆")
+        calibration.add_rule("腿举", "offset", offset_kg=53, gym="甲馆")
+        out = calibration.apply_rules([self._sess("2026-08-20", "甲馆", 100)])
         assert out[0]["movements"][0]["sets"][0]["weight_kg"] == 103
 
 
@@ -393,42 +393,42 @@ class TestGymIsAttachedBeforeCalibration:
         (tmp_path / "2026").mkdir()
         (tmp_path / "2026" / "2026-08.jsonl").write_text(
             _store.dumps(sess("2026-08-16", 40, 10, name="面拉")) + "\n", encoding="utf-8")
-        gyms.set_gym("2026-08-16", "艾克仕")
-        calibration.add_rule("面拉", "scale", ratio=0.5, gym="艾克仕")
+        gyms.set_gym("2026-08-16", "乙馆")
+        calibration.add_rule("面拉", "scale", ratio=0.5, gym="乙馆")
 
         out = _store.load_sessions()
         gyms._index.cache_clear()
-        assert out[0]["gym"] == "艾克仕"
+        assert out[0]["gym"] == "乙馆"
         assert out[0]["movements"][0]["sets"][0]["weight_kg"] == 20
 
 
 class TestSupersedesMany:
     """一条新规则可以同时推翻好几条旧的。
 
-    这不是花哨功能：2026-08-25 那条「BA 腿举 +53」同时取代了「腿举的 ignore
+    这不是花哨功能：2026-08-25 那条「甲馆 腿举 +53」同时取代了「腿举的 ignore
     起算线」和更早那版 offset。逼人一条条拆开写，结果是人干脆不写，
     旧规则就永远挂在那儿 —— 而这张表里最危险的东西正是「看起来生效的死规则」。
     """
 
     def test_one_rule_can_retire_two(self, rules_file):
-        a = calibration.add_rule("腿举", "offset", offset_kg=50, gym="BA")
+        a = calibration.add_rule("腿举", "offset", offset_kg=50, gym="甲馆")
         rules_file.write_text(
             rules_file.read_text(encoding="utf-8")
             + store.dumps({"id": "OLD", "movement": "腿举", "action": "ignore"}) + "\n",
             encoding="utf-8")
-        calibration.add_rule("腿举", "offset", offset_kg=53, gym="BA",
+        calibration.add_rule("腿举", "offset", offset_kg=53, gym="甲馆",
                              supersedes=f"{a.id},OLD")
         assert [r.offset_kg for r in calibration.load_rules()] == [53]
         assert calibration.retired_rows() == []          # 旧 ignore 不再报
 
     def test_single_id_still_works(self, rules_file):
-        a = calibration.add_rule("腿举", "offset", offset_kg=50, gym="BA")
-        calibration.add_rule("腿举", "offset", offset_kg=53, gym="BA", supersedes=a.id)
+        a = calibration.add_rule("腿举", "offset", offset_kg=50, gym="甲馆")
+        calibration.add_rule("腿举", "offset", offset_kg=53, gym="甲馆", supersedes=a.id)
         assert [r.offset_kg for r in calibration.load_rules()] == [53]
 
     def test_survives_a_round_trip_through_the_file(self, rules_file):
-        a = calibration.add_rule("腿举", "offset", offset_kg=50, gym="BA")
-        b = calibration.add_rule("腿举", "offset", offset_kg=53, gym="BA",
+        a = calibration.add_rule("腿举", "offset", offset_kg=50, gym="甲馆")
+        b = calibration.add_rule("腿举", "offset", offset_kg=53, gym="甲馆",
                                  supersedes=[a.id, "OLD"])
         loaded = calibration.load_rules()[0]
         assert loaded.id == b.id
